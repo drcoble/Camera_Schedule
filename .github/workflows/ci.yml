@@ -28,7 +28,7 @@ jobs:
         run: |
           make -C app build-${{ matrix.arch }}
 
-      - name: Verify .eap size (NFR-1: ≤ 5 MB)
+      - name: "Verify .eap size (NFR-1: <= 5 MB)"
         run: |
           set -euo pipefail
           EAP=dist/camera-schedule-${{ matrix.arch }}.eap
