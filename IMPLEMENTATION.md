@@ -86,8 +86,12 @@ before writing any business logic.
 - `make build-all` produces two `.eap` files, each ≤ 5 MB.
 - `eap-install.sh install camera-schedule-armv7hf.eap` succeeds on both
   lab cameras (OS 12.10.61 and OS 11.11.192).
-- After start, `https://<camera>/local/camera-schedule/about` returns
+- After start, `https://<camera>/local/camera_schedule/about` returns
   `{"name":"Camera_Schedule","version":"0.1.0","arch":"armv7hf"}`.
+  (URL path uses an underscore — Axis manifest schemas restrict
+  `appName` to `[a-zA-Z0-9_]`, so `camera_schedule` is the appName and
+  the `/local/` path is derived from it. Hyphens stay in the artifact
+  filenames only.)
 - `apparmor_status` shows no policy violations on the OS 12 camera over
   a 1-hour run.
 
@@ -127,7 +131,7 @@ action rule to a working sunrise or sunset trigger.
 - `make test` (host) passes the solar fixtures within ±60 s
   ([FR-3.7](./requirements/03-solar-events.md)) at lat ≤ ±60°.
 - On the OS 12 lab camera with location set to Atlanta GA: the topics
-  `tnsaxis:CameraApplicationPlatform/camera-schedule/sunrise` and
+  `tnsaxis:CameraApplicationPlatform/camera_schedule/sunrise` and
   `…/sunset` appear in the Action Rules condition picker, with their
   configured nice names.
 - Bind an action rule "sunrise → send MQTT message" and observe it fire

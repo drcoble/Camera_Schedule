@@ -4,11 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-This repo currently holds **requirements only** — no source code yet. The
-requirements were elicited interactively, refined by hardware probing of
-two lab Axis cameras, and shaped by reuse analysis of the MIT-licensed
-Timelapse2 ACAP. Implementation hasn't started. When code lands, update
-this file with a "Build & test" section describing the actual commands.
+M0 (repo foundation) and M1 (build pipeline + empty `.eap`) are
+complete. The pipeline produces two installable artifacts on every
+push, and the M1 application — a GLib main loop with a single `about`
+FastCGI endpoint — runs on both lab cameras (OS 12.10.61 + OS 11.11.x).
+
+Next milestone is **M2 — Sunrise / sunset MVP** per
+[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). Don't take on M2+ work
+until M1's AppArmor 1-hour soak is verified clean and `v0.1.0` is
+tagged.
 
 ## Where to read first
 
@@ -26,9 +30,9 @@ In order:
    document architectural pivots and removed requirements. The decision
    log is the canonical "current state of thinking."
 4. [`requirements/24-open-questions.md`](./requirements/24-open-questions.md)
-   — currently a closed-OQ ledger. All OQ-1…OQ-11 are resolved. New
-   uncertainties get appended here as **OQ-12+** with a corresponding
-   **DL-16+** resolution.
+   — closed-OQ ledger. All OQ-1…OQ-12 are resolved. New uncertainties
+   get appended here as **OQ-13+** with a corresponding **DL-17+**
+   resolution.
 5. The numbered requirements files. Functional requirements are in
    `01-…` through `13-…`; cross-cutting (non-functional, platform,
    build, verification, licensing, environment, framework reuse,
@@ -114,6 +118,87 @@ DL-NN entry first.
 - **OS floor**: AXIS OS **11.11+**. Single mainline. Two `.eap`
   artifacts (armv7hf, aarch64). One manifest schema 1.7.x. One SDK
   12.x. (DL-15)
+- **No `compatibleOsVersions` in manifest**: that field doesn't exist
+  in any schema bundled with SDK 12.6.0 (verified v1.0…v1.8.0). OS
+  compatibility is enforced at runtime by the APIs we link against.
+  (DL-16)
+
+## Build & test
+
+The build is fully Dockerized — the only host-side requirement is
+Docker (Buildx-capable) and `make`. Everything else (toolchain, SDK,
+manifest validator, `acap-build` packaging) runs inside the pinned
+`axisecp/acap-native-sdk:12.6.0-${ARCH}-ubuntu24.04` image.
+
+### Local builds
+
+From the repo root:
+
+```sh
+make -C app build-armv7hf   # OS 11.11+ and OS 12 on Artpec-7
+make -C app build-aarch64   # OS 12 on Artpec-8+
+make -C app build-all       # both
+make -C app help            # menu
+```
+
+Outputs:
+
+```
+dist/camera-schedule-armv7hf.eap
+dist/camera-schedule-aarch64.eap
+```
+
+The Makefile's `stage-license` prerequisite copies the root `LICENSE`
+into `app/LICENSE` (gitignored) so `acap-build` can find it without
+having two LICENSE files in git.
+
+### CI artifacts
+
+Every push and PR runs the full matrix (`build × {armv7hf, aarch64}` +
+manifest sanity + `make help`). To grab a green run's `.eap` files
+without rebuilding locally:
+
+```sh
+RUN_ID=$(gh run list --limit 1 --repo drcoble/Camera_Schedule \
+           --status success --json databaseId --jq '.[0].databaseId')
+gh run download $RUN_ID --repo drcoble/Camera_Schedule --dir dist
+```
+
+### Naming conventions
+
+- **`appName`** = `camera_schedule` (underscore). Drives the URL path
+  `/local/camera_schedule/...` and the AXEvent topic prefix
+  `tnsaxis:CameraApplicationPlatform/camera_schedule/...`.
+- **Artifact filenames** use a hyphen: `camera-schedule-<arch>.eap`.
+- **`friendlyName`** is `Camera Schedule` (space) — that's what
+  appears in the camera's Apps UI.
+
+### Installing on a lab camera (VAPIX, no SDK tools required)
+
+```sh
+export AXIS_HOST_OS12=...   # from memory/test_cameras.md
+export AXIS_HOST_OS11=...
+export AXIS_PASS=...
+
+EAP=dist/camera-schedule-armv7hf.eap
+
+# Upload (works for both first-install and reinstall)
+curl -sk --anyauth -u "root:$AXIS_PASS" \
+  -F "packfil=@${EAP}" \
+  "https://${AXIS_HOST_OS12}/axis-cgi/applications/upload.cgi"
+
+# Start
+curl -sk --anyauth -u "root:$AXIS_PASS" \
+  "https://${AXIS_HOST_OS12}/axis-cgi/applications/control.cgi?action=start&package=camera_schedule"
+```
+
+### M1 smoke check
+
+```sh
+curl -sk --anyauth -u "root:$AXIS_PASS" \
+  "https://${AXIS_HOST_OS12}/local/camera_schedule/about"
+# {"name":"Camera_Schedule","version":"0.1.0","arch":"armv7hf"}
+```
 
 ## Test cameras
 
@@ -173,6 +258,8 @@ Currently it contains:
 
 - `test_cameras.md` — lab camera addresses, credentials, and upgrade
   history.
+- `github_handle.md` — the user's GitHub handle is `drcoble` (not
+  `drewcoble`); repo is `drcoble/Camera_Schedule`.
 
 Add new memory files there for any project-specific context that
 shouldn't enter the public repo.
