@@ -25,6 +25,10 @@ OBJS  = src/main.c \
 PKGS  = glib-2.0 gio-2.0 axevent axparameter fcgi libcurl
 
 CFLAGS  += -std=c99 -Wall -Wextra -Wno-format-truncation -Wno-format-overflow
+# _GNU_SOURCE so strdup/strndup are declared by string.h (vendored
+# ACAP.c uses both). Without it, gcc treats them as implicit-int and
+# silently truncates pointers on 64-bit targets.
+CFLAGS  += -D_GNU_SOURCE
 CFLAGS  += -Isrc -Isrc/acap
 CFLAGS  += $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) pkg-config --cflags $(PKGS))
 
@@ -55,9 +59,16 @@ DIST_DIR        := $(REPO_ROOT)/dist
 SDK_VERSION     ?= 12.6.0
 UBUNTU_VERSION  ?= 24.04
 
-.PHONY: build-armv7hf build-aarch64 build-all dist-clean help
+.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license
 
-build-armv7hf: ## Build the armv7hf .eap (OS 11.11+ and OS 12 on Artpec-7)
+# acap-build (the in-container packaging tool) requires a LICENSE file
+# in the build directory. The canonical LICENSE lives at the repo root;
+# this target copies it into app/ as a build artifact (gitignored) so
+# the docker build context picks it up.
+stage-license:
+	@cp -f $(REPO_ROOT)/LICENSE $(APP_DIR)/LICENSE
+
+build-armv7hf: stage-license ## Build the armv7hf .eap (OS 11.11+ and OS 12 on Artpec-7)
 	@mkdir -p $(DIST_DIR)
 	docker build \
 		--build-arg ARCH=armv7hf \
@@ -68,7 +79,7 @@ build-armv7hf: ## Build the armv7hf .eap (OS 11.11+ and OS 12 on Artpec-7)
 	@cp -f $(DIST_DIR)/armv7hf/*.eap $(DIST_DIR)/camera-schedule-armv7hf.eap
 	@ls -la $(DIST_DIR)/camera-schedule-armv7hf.eap
 
-build-aarch64: ## Build the aarch64 .eap (OS 12 on Artpec-8+)
+build-aarch64: stage-license ## Build the aarch64 .eap (OS 12 on Artpec-8+)
 	@mkdir -p $(DIST_DIR)
 	docker build \
 		--build-arg ARCH=aarch64 \

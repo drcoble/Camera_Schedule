@@ -13,6 +13,8 @@ app/*_LICENSE.txt
 app/manifest.json.bak
 app/build/
 app/.acap-build/
+# Staged from repo root by `make stage-license` so acap-build can find it.
+app/LICENSE
 
 # Host test build output
 app/test/host/build/
