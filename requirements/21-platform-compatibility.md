@@ -12,9 +12,12 @@ are unsupported (see [DL-15](./28-decision-log.md)).
   - Manifest schema **1.7.x** — accepted by both OS 11.11+ and OS 12.x.
   - `embeddedSdkVersion: "3.0"`.
   - `runMode: "respawn"`.
-  - Manifest declares `compatibleOsVersions: [{ versionRange:
-    { min: "11.11", max: "13" } }]` (raise the `max` as Axis ships new
-    OS majors).
+  - **No manifest-level OS-compatibility declaration** — earlier draft
+    required `compatibleOsVersions: [{ versionRange: ... }]`, but that
+    field doesn't exist in any manifest schema bundled with SDK 12.6.0
+    (v1.0 → v1.8.0 all rejected). See [DL-16](./28-decision-log.md);
+    OS-compatibility is enforced at runtime by the AXIS OS 11.11+ APIs
+    we link against and stated explicitly in release notes.
   - Dynamic-user model uniformly. Application signing required on v12;
     same signed `.eap` is also accepted by OS 11.11+.
   - D-Bus credential acquisition for VAPIX loopback uniformly

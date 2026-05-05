@@ -43,3 +43,8 @@ than amending this list in place.
 - ~~**OQ-11** — OS floor and build matrix~~ → AXIS OS 11.11+ floor;
   build matrix simplified to two `.eap` artifacts.
   See [DL-15](./28-decision-log.md).
+- ~~**OQ-12** — `compatibleOsVersions` not in any SDK 12.6.0 schema~~ →
+  field doesn't exist in `application-manifest-schema-v1.0` through
+  `v1.8.0` (verified by inspecting the schemas bundled in
+  `axisecp/acap-native-sdk:12.6.0`). Field dropped from the manifest;
+  PR-1 amended. See [DL-16](./28-decision-log.md).

@@ -427,3 +427,61 @@ SoCs, so there is no OS-11 aarch64 artifact.)
 **References.** [21-platform-compatibility.md](./21-platform-compatibility.md),
 [22-build-and-packaging.md](./22-build-and-packaging.md),
 [27-reuse-from-timelapse2.md](./27-reuse-from-timelapse2.md).
+
+---
+
+## DL-16 — `compatibleOsVersions` is not a manifest schema field; remove from manifest
+
+Date: 2026-05-05  |  Status: accepted
+
+**Decision.** Drop the `compatibleOsVersions` declaration from
+`app/manifest.json`. PR-1 is amended to remove the requirement that
+the manifest declare it.
+
+**Rationale.** The field doesn't exist. CI run `25398126081` introspected
+every manifest schema bundled with `axisecp/acap-native-sdk:12.6.0`
+(versions `application-manifest-schema-v1.0.json` through
+`application-manifest-schema-v1.8.0.json`). The schemas have
+`additionalProperties: False` at every level and no schema declares
+a `compatibleOsVersions` property at any path. The discovery job's
+diagnostic output:
+
+```
+top-level properties: ['$schema', 'acapPackageConf', 'resources', 'schemaVersion']
+acapPackageConf properties: ['configuration', 'copyProtection',
+                             'installation', 'setup', 'uninstallation']
+locations of compatibleOsVersions: NOT FOUND
+```
+
+DL-04's claim that `compatibleOsVersions` was observed in installed
+apps (Object Analytics with `Min=12 Max=12`, VMD with `Min=12.10
+Max=13`) was either (a) misread — the field name on the camera might
+have been different, or those values came from `embeddedSdkVersion` /
+package metadata, not manifest schema; or (b) the field exists in a
+manifest schema version newer than v1.8.0 not yet shipping in any
+public SDK image we use.
+
+**Practical impact.** OS compatibility is enforced at runtime: the app
+links against APIs that only exist on OS 11.11+ (`embeddedSdkVersion:
+3.0` plus the AXEvent calls in vendored ACAP.c), so install on an
+older OS will fail at app launch even without a manifest declaration.
+The user-facing degradation from removing the field is "the install
+dialog doesn't preempt incompatible installs" — annoying but not a
+functional gap.
+
+**Removed / changed.**
+- `app/manifest.json` no longer carries a `compatibleOsVersions` block.
+- PR-1 amended (see [21-platform-compatibility.md](./21-platform-compatibility.md))
+  to remove the manifest declaration requirement; the AXIS OS 11.11+
+  floor is preserved as a release-notes / install-guidance commitment.
+- DL-04 stays in the log (append-only) but its closing claim about
+  this specific field is superseded here.
+- OQ-12 closed.
+
+**Forward look.** If a future SDK introduces the field, re-add it at
+the schema-defined path and remove the schema-discovery CI job.
+
+**References.** Discovery output in CI run 25398126081 (job
+`SDK manifest-schema discovery`),
+[21-platform-compatibility.md](./21-platform-compatibility.md),
+[24-open-questions.md](./24-open-questions.md) OQ-12.
