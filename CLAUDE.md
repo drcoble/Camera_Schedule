@@ -1,0 +1,178 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Repository state
+
+This repo currently holds **requirements only** — no source code yet. The
+requirements were elicited interactively, refined by hardware probing of
+two lab Axis cameras, and shaped by reuse analysis of the MIT-licensed
+Timelapse2 ACAP. Implementation hasn't started. When code lands, update
+this file with a "Build & test" section describing the actual commands.
+
+## Where to read first
+
+In order:
+
+1. [`README.md`](./README.md) — one-page overview, scope, and the index
+   to every requirements file.
+2. [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) — milestone-driven
+   roadmap (M0…M8). Tells you which milestone is next and what
+   "complete" means for it. Treat the milestone you're working on as
+   the active task list; don't take on M+1 work until M's tests pass.
+3. [`requirements/28-decision-log.md`](./requirements/28-decision-log.md)
+   — append-only ledger of every substantive design decision. **Read
+   this before quoting any specific requirement** — DL-NN entries
+   document architectural pivots and removed requirements. The decision
+   log is the canonical "current state of thinking."
+4. [`requirements/24-open-questions.md`](./requirements/24-open-questions.md)
+   — currently a closed-OQ ledger. All OQ-1…OQ-11 are resolved. New
+   uncertainties get appended here as **OQ-12+** with a corresponding
+   **DL-16+** resolution.
+5. The numbered requirements files. Functional requirements are in
+   `01-…` through `13-…`; cross-cutting (non-functional, platform,
+   build, verification, licensing, environment, framework reuse,
+   decisions) in `20-…` through `28-…`.
+
+## Working conventions
+
+### Decision log discipline
+
+- The decision log is **append-only**. Once a DL-NN entry is recorded,
+  do not edit it. To reverse or refine a prior decision, append a new
+  DL entry that explicitly says "supersedes DL-NN" and update only the
+  earlier entry's status to `superseded by DL-NN`.
+- Whenever you remove or materially change a requirement, capture the
+  removal in a new DL entry. The "Removed / changed" block is what
+  future contributors will rely on to understand why something looks
+  the way it does.
+
+### Historical artifacts
+
+Two files are historical snapshots and SHOULD NOT be retroactively
+edited (they document state at a specific point in time):
+
+- [`requirements/26-discovered-environment.md`](./requirements/26-discovered-environment.md)
+  — the result of the initial probe sweep against the lab cameras.
+  Firmware versions and observed behaviors are correct *as of the probe
+  date*. If a camera is upgraded or behavior changes, capture that in a
+  new DL entry, not by editing this file.
+- The decision log itself.
+
+### Open questions hygiene
+
+The OQ file is the question ledger, not a design document. Don't copy
+rationale into it; rationale belongs in the corresponding DL entry. An
+OQ entry should be one sentence + a pointer to its resolution.
+
+### Cross-references
+
+Use relative paths within the `requirements/` tree
+(`./07-schedule-anchors.md`, `./28-decision-log.md`). Reference specific
+clauses by their identifier (`FR-7.4`, `NFR-6`, `DR-1`, `BR-7`,
+`DL-05`). When you remove a file, sweep cross-refs:
+
+```sh
+grep -rn 'old-filename\|removed-id' /Users/drew/Documents/Development/Camera_Schedule/
+```
+
+### Trust-but-verify when recalling
+
+A few earlier draft requirements were proven wrong by hardware probing
+(e.g. the assumption that `/config/rest/scheduled-events/v2` exists, or
+that AXIS OS 12 is aarch64-only). Before recommending an approach from
+public Axis documentation, **check the decision log first** to see if
+the assumption was already invalidated. The lab cameras (see below) are
+the source of truth; the docs at `developer.axis.com` describe ideal
+state, not all shipping firmware.
+
+## Architectural commitments (don't relitigate without a DL entry)
+
+These are decided. If you find a reason to reverse one, write a new
+DL-NN entry first.
+
+- **License**: MIT. Single `LICENSE` file at root, SPDX header in every
+  project-owned source file. (DL-01)
+- **Open source**: public repo, public CI, public release artifacts.
+  No credentials in tree. (DL-02, DL-09)
+- **Schedule mechanism**: **Path A — publish ACAP event topics**.
+  The app registers events on the device event engine and fires them
+  via GLib timer sources. **No iCalendar generation. No REST writes to
+  a schedule API.** That API doesn't exist on shipping firmware.
+  (DL-05; see `08-event-registration.md`, `09-event-firing.md`.)
+- **Framework reuse**: vendor `ACAP.c/h` and `cJSON.c/h` from
+  Timelapse2 (MIT, https://github.com/pandosme/Timelapse2) into
+  `app/src/acap/`. Adopt its declarative-events pattern
+  (`settings/events.json`) and its midnight + per-event timer model.
+  (DL-06; see `27-reuse-from-timelapse2.md`.)
+- **Geolocation**: lat/lon lives in the camera's geolocation service.
+  Manual overrides write back via `/axis-cgi/geolocation/set.cgi`. The
+  app does not maintain a parallel persistent override. (DL-07)
+- **No external CDN** in the UI: bundle all assets locally.
+  Specifically diverges from Timelapse2's Leaflet-from-unpkg pattern.
+  (DL-08)
+- **OS floor**: AXIS OS **11.11+**. Single mainline. Two `.eap`
+  artifacts (armv7hf, aarch64). One manifest schema 1.7.x. One SDK
+  12.x. (DL-15)
+
+## Test cameras
+
+Two lab Axis cameras exist on the development network. **Their IPs and
+root credentials live in the developer's local Claude memory at**
+`/Users/drew/.claude/projects/-Users-drew-Documents-Development-Camera-Schedule/memory/test_cameras.md`,
+**not in this repo.** They MUST stay out of the repo because the repo
+is public-MIT.
+
+Probe scripts and (eventually) CI integration tests SHALL read camera
+addresses and credentials from environment variables — typical pattern:
+
+```sh
+export AXIS_HOST_OS12=...   # from memory file
+export AXIS_HOST_OS11=...
+export AXIS_PASS=...
+
+curl -sk --anyauth -u "root:$AXIS_PASS" \
+  "https://$AXIS_HOST_OS12/axis-cgi/geolocation/get.cgi"
+```
+
+Both cameras are Artpec-7 / armv7hf. **The aarch64 build artifact has
+no lab target yet** — an Artpec-8+ unit is needed before a v1 release
+can ship.
+
+### Probing
+
+All probes against the cameras MUST be **read-only by default**. Use
+`GET /axis-cgi/...` and SOAP read operations only. Anything that
+mutates camera state (write a parameter, push a config, install an
+ACAP) requires user confirmation first — these are shared lab cameras,
+not dedicated to one experiment.
+
+## File numbering scheme
+
+```
+01-13   Functional requirements (FR-1 through FR-13)
+20      Non-functional requirements (NFR)
+21      Platform & compatibility (PR)
+22      Build & packaging (BR)
+23      Verification (acceptance checks)
+24      Open-questions ledger (closed; new ones append as OQ-12+)
+25      Licensing & distribution (DR)
+26      Discovered environment (probe-time historical)
+27      Reuse from Timelapse2
+28      Decision log (DL, append-only)
+```
+
+Don't renumber. If a new cross-cutting topic emerges that doesn't fit,
+add it as the next available 2x file.
+
+## Memory pointer
+
+This project has its own memory tree at
+`/Users/drew/.claude/projects/-Users-drew-Documents-Development-Camera-Schedule/memory/`.
+Currently it contains:
+
+- `test_cameras.md` — lab camera addresses, credentials, and upgrade
+  history.
+
+Add new memory files there for any project-specific context that
+shouldn't enter the public repo.

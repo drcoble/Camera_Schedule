@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.7.1",
+  "acapPackageConf": {
+    "setup": {
+      "friendlyName": "Camera Schedule",
+      "appName": "camera_schedule",
+      "vendor": "Camera_Schedule contributors",
+      "vendorUrl": "https://github.com/drewcoble/Camera_Schedule",
+      "embeddedSdkVersion": "3.0",
+      "runMode": "respawn",
+      "version": "0.1.0"
+    },
+    "configuration": {
+      "settingPage": "about.html",
+      "httpConfig": [
+        { "access": "viewer", "name": "about", "type": "fastCgi" }
+      ]
+    }
+  },
+  "resources": {
+    "dbus": {
+      "requiredMethods": [
+        "com.axis.HTTPConf1.VAPIXServiceAccounts1.GetCredentials"
+      ]
+    }
+  },
+  "compatibleOsVersions": [
+    { "versionRange": { "min": "11.11", "max": "13" } }
+  ]
+}

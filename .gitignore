@@ -1,0 +1,44 @@
+# Build output
+*.eap
+*.eap.old
+*.o
+*.a
+*.so
+*.exe
+
+# ACAP build intermediates
+app/package.conf*
+app/param.conf
+app/*_LICENSE.txt
+app/manifest.json.bak
+app/build/
+app/.acap-build/
+
+# Host test build output
+app/test/host/build/
+app/test/host/*.bin
+
+# Editor / OS detritus
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+*.bak
+
+# Coverage / profiling
+*.gcda
+*.gcno
+*.gcov
+coverage/
+
+# Local secrets — never commit (test camera creds live in Claude memory)
+.env
+.env.*
+!.env.example
+
+# Claude Code local-only settings (project-level settings.json is committed)
+.claude/settings.local.json
+
+# Docker
+.dockerignore.bak

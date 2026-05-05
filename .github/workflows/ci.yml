@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} .eap
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [armv7hf, aarch64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build .eap
+        run: |
+          make -C app build-${{ matrix.arch }}
+
+      - name: Verify .eap size (NFR-1: ≤ 5 MB)
+        run: |
+          set -euo pipefail
+          EAP=dist/camera-schedule-${{ matrix.arch }}.eap
+          test -f "$EAP" || { echo "missing $EAP"; exit 1; }
+          SIZE=$(stat -c%s "$EAP")
+          echo "$EAP size: $SIZE bytes"
+          if [ "$SIZE" -gt 5242880 ]; then
+            echo "ERROR: $EAP exceeds 5 MB cap (NFR-1)"; exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: camera-schedule-${{ matrix.arch }}
+          path: dist/camera-schedule-${{ matrix.arch }}.eap
+          if-no-files-found: error
+
+  manifest-lint:
+    name: Manifest sanity
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate manifest.json is well-formed JSON
+        run: |
+          python3 -c 'import json,sys; json.load(open("app/manifest.json"))'
+      - name: Required fields present
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          m = json.load(open("app/manifest.json"))
+          assert m.get("schemaVersion","").startswith("1.7"), m.get("schemaVersion")
+          setup = m["acapPackageConf"]["setup"]
+          for k in ("appName","vendor","embeddedSdkVersion","runMode","version"):
+              assert k in setup, f"missing setup.{k}"
+          assert setup["embeddedSdkVersion"] == "3.0"
+          assert setup["runMode"] == "respawn"
+          print("manifest sanity OK")
+          PY
+
+  make-help:
+    name: make help
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: make help
+        run: make -C app help

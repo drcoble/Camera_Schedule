@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera Schedule</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<main>
+  <h1>Camera Schedule</h1>
+  <p class="tagline">
+    Solar, lunar, and seasonal event triggers from the camera's geographic location.
+  </p>
+
+  <section class="card">
+    <h2>About this build</h2>
+    <dl id="about">
+      <dt>Name</dt>      <dd id="about-name">…</dd>
+      <dt>Version</dt>   <dd id="about-version">…</dd>
+      <dt>Architecture</dt> <dd id="about-arch">…</dd>
+    </dl>
+    <p id="about-error" class="error" hidden></p>
+  </section>
+
+  <section class="card">
+    <h2>Status</h2>
+    <p>
+      M1 milestone build — the application boots and serves this page,
+      but does not yet register any event topics. Sunrise/sunset and
+      the rest of the solar suite arrive in M2 / M3. See the project's
+      <code>IMPLEMENTATION.md</code> for the roadmap.
+    </p>
+  </section>
+</main>
+<script src="js/app.js"></script>
+</body>
+</html>

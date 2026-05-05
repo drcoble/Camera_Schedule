@@ -1,0 +1,17 @@
+# Build / dist outputs (don't ship into the build context)
+*.eap
+*.eap.old
+package.conf*
+param.conf
+*_LICENSE.txt
+manifest.json.bak
+build/
+.acap-build/
+
+# Host-test build output
+test/host/build/
+
+# Editor / OS detritus
+.DS_Store
+*.swp
+*~
