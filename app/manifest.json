@@ -5,7 +5,7 @@
       "friendlyName": "Camera Schedule",
       "appName": "camera_schedule",
       "vendor": "Camera_Schedule contributors",
-      "vendorUrl": "https://github.com/drewcoble/Camera_Schedule",
+      "vendorUrl": "https://github.com/drcoble/Camera_Schedule",
       "embeddedSdkVersion": "3.0",
       "runMode": "respawn",
       "version": "0.1.0"
