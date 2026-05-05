@@ -75,3 +75,46 @@ jobs:
       - uses: actions/checkout@v4
       - name: make help
         run: make -C app help
+
+  schema-discovery:
+    # One-time diagnostic: lists every manifest schema bundled with the
+    # pinned SDK image and prints the highest-numbered one. Output goes
+    # to the run log so we can see which schemaVersion we're allowed to
+    # declare and whether fields like `compatibleOsVersions` exist.
+    # Remove this job once schemaVersion + field placement is settled.
+    name: SDK manifest-schema discovery
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - name: List bundled schemas
+        run: |
+          docker run --rm \
+            --entrypoint /bin/bash \
+            axisecp/acap-native-sdk:12.6.0-armv7hf-ubuntu24.04 \
+            -c 'find /opt/axis/acapsdk -path "*manifest*" -name "*.json" 2>/dev/null | sort'
+      - name: Dump latest schema (top-level fields only)
+        run: |
+          docker run --rm \
+            --entrypoint /bin/bash \
+            axisecp/acap-native-sdk:12.6.0-armv7hf-ubuntu24.04 \
+            -c 'set -e
+                LATEST=$(find /opt/axis/acapsdk -path "*manifest*schema*.json" 2>/dev/null | sort -V | tail -1)
+                echo "=== Latest schema: $LATEST ==="
+                python3 -c "
+          import json, sys
+          s = json.load(open(\"$LATEST\"))
+          print(\"top-level properties:\", sorted((s.get(\"properties\") or {}).keys()))
+          apc = (s.get(\"properties\") or {}).get(\"acapPackageConf\", {})
+          print(\"acapPackageConf properties:\", sorted((apc.get(\"properties\") or {}).keys()))
+          for path in [\"compatibleOsVersions\"]:
+              found = []
+              def walk(node, p):
+                  if isinstance(node, dict):
+                      if path in (node.get(\"properties\") or {}):
+                          found.append(\"/\".join(p))
+                      for k,v in node.items(): walk(v, p+[k])
+                  elif isinstance(node, list):
+                      for i,v in enumerate(node): walk(v, p+[str(i)])
+              walk(s, [])
+              print(f\"locations of {path}:\", found or \"NOT FOUND\")
+          "'
