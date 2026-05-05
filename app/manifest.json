@@ -15,7 +15,10 @@
       "httpConfig": [
         { "access": "viewer", "name": "about", "type": "fastCgi" }
       ]
-    }
+    },
+    "compatibleOsVersions": [
+      { "versionRange": { "min": "11.11", "max": "13" } }
+    ]
   },
   "resources": {
     "dbus": {
@@ -23,8 +26,5 @@
         "com.axis.HTTPConf1.VAPIXServiceAccounts1.GetCredentials"
       ]
     }
-  },
-  "compatibleOsVersions": [
-    { "versionRange": { "min": "11.11", "max": "13" } }
-  ]
+  }
 }
