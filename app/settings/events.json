@@ -1,1 +1,4 @@
-[]
+[
+  { "id": "sunrise", "name": "Sunrise", "state": false, "show": true },
+  { "id": "sunset",  "name": "Sunset",  "state": false, "show": true }
+]

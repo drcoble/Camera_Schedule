@@ -17,6 +17,8 @@
 
 PROG  = camera_schedule
 OBJS  = src/main.c \
+        src/timers.c \
+        src/astro/solar.c \
         src/acap/ACAP.c \
         src/acap/cJSON.c
 
@@ -59,7 +61,32 @@ DIST_DIR        := $(REPO_ROOT)/dist
 SDK_VERSION     ?= 12.6.0
 UBUNTU_VERSION  ?= 24.04
 
-.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license
+.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license test test-clean
+
+# ---------------------------------------------------------------------
+# Host-side tests (no docker, no SDK)
+# ---------------------------------------------------------------------
+
+# Solar test runs natively on the build host. solar.c was kept pure
+# (no GLib, no ACAP framework) so it links cleanly against just libm.
+TEST_HOST_DIR  := $(APP_DIR)/test/host
+TEST_HOST_BIN  := $(TEST_HOST_DIR)/build/test_solar
+TEST_CFLAGS    := -std=c99 -Wall -Wextra -Wpedantic -O2 -I$(APP_DIR)/src
+
+test: $(TEST_HOST_BIN) ## Run host-side test fixtures (solar, ...)
+	@$(TEST_HOST_BIN)
+
+$(TEST_HOST_BIN): $(APP_DIR)/src/astro/solar.c \
+                  $(APP_DIR)/src/astro/solar.h \
+                  $(TEST_HOST_DIR)/test_solar.c
+	@mkdir -p $(TEST_HOST_DIR)/build
+	$(CC) $(TEST_CFLAGS) \
+	  $(APP_DIR)/src/astro/solar.c \
+	  $(TEST_HOST_DIR)/test_solar.c \
+	  -lm -o $(TEST_HOST_BIN)
+
+test-clean: ## Remove host test build outputs
+	rm -rf $(TEST_HOST_DIR)/build
 
 # acap-build (the in-container packaging tool) requires a LICENSE file
 # in the build directory. The canonical LICENSE lives at the repo root;

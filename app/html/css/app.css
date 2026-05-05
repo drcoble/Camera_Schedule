@@ -55,3 +55,53 @@ code {
   border-radius: 3px;
   font-size: 0.95em;
 }
+
+/* Forms */
+form .row {
+  display: grid;
+  grid-template-columns: 9rem 12rem 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.6rem 0;
+}
+form label { color: var(--muted); }
+form input[type="number"] {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg);
+  color: var(--fg);
+}
+form .hint { color: var(--muted); font-size: 0.9em; }
+form .actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+button {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  background: var(--card-bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+button[type="submit"] {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+button:hover { filter: brightness(0.95); }
+
+.status {
+  margin: 0.5rem 0 0 0;
+  min-height: 1.4em;
+}
+.status.error   { color: var(--error); }
+.status.success { color: #166534; }
+@media (prefers-color-scheme: dark) {
+  .status.success { color: #6ee7b7; }
+}
