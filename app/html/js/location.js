@@ -8,7 +8,7 @@
   var form     = document.getElementById("location-form");
   var latInput = document.getElementById("lat");
   var lonInput = document.getElementById("lon");
-  var status   = document.getElementById("status");
+  var status   = document.getElementById("location-status");
   var reload   = document.getElementById("reload");
 
   // FR-1.6 / DL-17: display read-back values rounded to microdegree

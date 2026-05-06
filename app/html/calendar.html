@@ -20,23 +20,23 @@
   </div>
 
   <!-- Calendar entry list -->
-  <section class="card" id="list-section">
+  <section class="card" id="list-section" aria-labelledby="list-heading">
     <div class="crud-header">
       <h2 id="list-heading">Calendar entries</h2>
       <span class="crud-count" id="cal-count" aria-live="polite"></span>
       <button type="button" id="btn-new">+ New entry</button>
     </div>
-    <p class="cap-note" id="cap-note" hidden>
+    <p class="cap-note" id="cap-note" role="status" hidden>
       Maximum 64 calendar entries reached. Delete one before adding another.
     </p>
 
-    <table class="crud-table" id="cal-table" aria-describedby="list-heading">
+    <table class="crud-table" id="cal-table" aria-labelledby="list-heading" aria-describedby="cal-count">
       <thead>
         <tr>
           <th scope="col">Name</th>
           <th scope="col">Kind</th>
           <th scope="col">Date / time</th>
-          <th scope="col" class="col-actions">Actions</th>
+          <th scope="col" class="col-actions"><span class="sr-only">Row actions</span></th>
         </tr>
       </thead>
       <tbody id="cal-tbody">
@@ -46,7 +46,7 @@
   </section>
 
   <!-- Create / Edit form -->
-  <section class="card" id="form-section" hidden>
+  <section class="card" id="form-section" aria-labelledby="form-heading" hidden>
     <h2 id="form-heading">New calendar entry</h2>
 
     <form id="cal-form" novalidate>
@@ -98,17 +98,20 @@
       </fieldset>
 
       <!-- Time mode -->
-      <p class="form-section-title">Time</p>
-      <div class="kind-selector" id="time-mode-selector">
-        <label>
-          <input type="radio" name="time_mode" value="all_day" checked>
-          All day
-        </label>
-        <label>
-          <input type="radio" name="time_mode" value="specific">
-          Specific time
-        </label>
-      </div>
+      <p class="form-section-title" id="time-mode-title">Time</p>
+      <fieldset class="kind-fieldset" aria-labelledby="time-mode-title">
+        <legend class="sr-only">Time mode</legend>
+        <div class="kind-selector" id="time-mode-selector">
+          <label>
+            <input type="radio" name="time_mode" value="all_day" checked>
+            All day
+          </label>
+          <label>
+            <input type="radio" name="time_mode" value="specific">
+            Specific time
+          </label>
+        </div>
+      </fieldset>
 
       <div id="fields-time-of-day" hidden>
         <div class="row-full">
@@ -157,7 +160,7 @@
         </div>
       </div>
 
-      <p id="form-status" class="status" aria-live="polite"></p>
+      <p id="form-status" class="status" role="status" aria-live="polite"></p>
 
       <div class="actions">
         <button type="submit" id="btn-submit">Save entry</button>

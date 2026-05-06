@@ -192,8 +192,10 @@
         '<td>' + escHtml(formatDetail(e)) + '</td>' +
         '<td class="col-actions">' +
         '<div class="row-actions">' +
-        '<button type="button" class="btn-edit" data-id="' + escHtml(e.id) + '">Edit</button>' +
-        '<button type="button" class="btn-delete" data-id="' + escHtml(e.id) + '" data-name="' + escHtml(e.name) + '">Delete</button>' +
+        '<button type="button" class="btn-edit" data-id="' + escHtml(e.id) + '"' +
+        ' aria-label="Edit calendar entry: ' + escHtml(e.name) + '">Edit</button>' +
+        '<button type="button" class="btn-delete" data-id="' + escHtml(e.id) + '" data-name="' + escHtml(e.name) + '"' +
+        ' aria-label="Delete calendar entry: ' + escHtml(e.name) + '">Delete</button>' +
         '</div></td>' +
         '</tr>';
     }

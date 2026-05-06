@@ -175,8 +175,10 @@
         '<td>' + detail + '</td>' +
         '<td class="col-actions">' +
         '<div class="row-actions">' +
-        '<button type="button" class="btn-edit" data-id="' + escHtml(a.id) + '">Edit</button>' +
-        '<button type="button" class="btn-delete" data-id="' + escHtml(a.id) + '" data-name="' + escHtml(a.name) + '">Delete</button>' +
+        '<button type="button" class="btn-edit" data-id="' + escHtml(a.id) + '"' +
+        ' aria-label="Edit anchor: ' + escHtml(a.name) + '">Edit</button>' +
+        '<button type="button" class="btn-delete" data-id="' + escHtml(a.id) + '" data-name="' + escHtml(a.name) + '"' +
+        ' aria-label="Delete anchor: ' + escHtml(a.name) + '">Delete</button>' +
         '</div></td>' +
         '</tr>';
     }

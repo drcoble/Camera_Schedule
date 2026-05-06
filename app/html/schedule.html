@@ -19,6 +19,95 @@
     </nav>
   </div>
 
+  <!-- ===== M7: Status panel ===== -->
+  <section class="schedule-section status-panel" id="sec-status" aria-labelledby="hdr-status">
+    <button type="button" class="section-header" id="hdr-status"
+            aria-expanded="true" aria-controls="body-status">
+      <span>System status</span>
+      <span class="section-count" id="status-poll-indicator"></span>
+      <svg class="section-chevron" viewBox="0 0 16 16" aria-hidden="true">
+        <polyline points="3 6 8 11 13 6"/>
+      </svg>
+    </button>
+    <div class="section-body status-body" id="body-status">
+      <!-- Error / loading message (aria-live only on this transient region) -->
+      <p id="status-error" class="status-panel-error" aria-live="polite" hidden></p>
+
+      <!-- Main grid of stat tiles -->
+      <div class="status-grid" id="status-grid" hidden>
+
+        <!-- Last recompute -->
+        <div class="stat-block">
+          <div class="stat-label">Last recompute</div>
+          <div class="stat-primary" id="stat-last-time" title=""></div>
+          <div class="stat-secondary">
+            <span id="stat-last-trigger" class="trigger-badge"></span>
+            <span id="stat-last-detail" class="stat-detail"></span>
+          </div>
+        </div>
+
+        <!-- Next recompute -->
+        <div class="stat-block">
+          <div class="stat-label">Next recompute</div>
+          <div class="stat-primary" id="stat-next-time" title=""></div>
+          <div class="stat-secondary">
+            <span id="stat-next-reason" class="trigger-badge trigger-badge--muted"></span>
+          </div>
+        </div>
+
+        <!-- Location -->
+        <div class="stat-block">
+          <div class="stat-label">Location</div>
+          <div class="stat-primary" id="stat-location"></div>
+          <div class="stat-secondary">
+            <span id="stat-location-badge" class="validity-badge"></span>
+            <span id="stat-tz" class="stat-detail"></span>
+          </div>
+        </div>
+
+        <!-- Counts -->
+        <div class="stat-block stat-block--counts">
+          <div class="stat-label">Topics</div>
+          <div class="stat-counts-row">
+            <div class="stat-tile">
+              <span class="stat-tile-num" id="cnt-declared">—</span>
+              <span class="stat-tile-lbl">declared</span>
+            </div>
+            <div class="stat-tile">
+              <span class="stat-tile-num" id="cnt-enabled">—</span>
+              <span class="stat-tile-lbl">enabled</span>
+            </div>
+            <div class="stat-tile">
+              <span class="stat-tile-num" id="cnt-anchors">—</span>
+              <span class="stat-tile-lbl">anchors</span>
+            </div>
+            <div class="stat-tile">
+              <span class="stat-tile-num" id="cnt-calendar">—</span>
+              <span class="stat-tile-lbl">calendar</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.status-grid -->
+
+      <!-- Recent activity sub-block -->
+      <div class="recent-activity" id="recent-activity" hidden>
+        <button type="button" class="recent-toggle" id="btn-recent-toggle"
+                aria-expanded="false" aria-controls="recent-list">
+          Recent activity
+          <svg class="section-chevron" viewBox="0 0 16 16" aria-hidden="true">
+            <polyline points="3 6 8 11 13 6"/>
+          </svg>
+        </button>
+        <ul class="recent-list" id="recent-list" role="list" hidden></ul>
+        <div class="recent-show-all" id="recent-show-all-wrap" hidden>
+          <button type="button" id="btn-show-all-recent" class="btn-link">Show all 50</button>
+        </div>
+      </div>
+    </div><!-- /#body-status -->
+  </section>
+  <!-- ===== end status panel ===== -->
+
   <div class="search-bar">
     <label for="search">Filter</label>
     <input id="search" type="search" placeholder="Search by name…" autocomplete="off" aria-label="Filter schedules by name">
@@ -26,6 +115,12 @@
 
   <div class="list-toolbar">
     <button type="button" id="btn-refresh">Refresh</button>
+    <!-- M7 toolbar additions -->
+    <button type="button" id="btn-recompute">Recompute now</button>
+    <a id="btn-export" class="btn btn-export" href="export" download
+       aria-label="Export configuration as JSON file">Export</a>
+    <button type="button" id="btn-import">Import</button>
+    <!-- transient status output for toolbar actions -->
     <p id="page-status" class="status page-status" aria-live="polite"></p>
   </div>
 
@@ -93,7 +188,56 @@
     </button>
     <div class="section-body" id="body-calendar" role="list"></div>
   </section>
+
+  <!-- ===== M7: Debug-logging toggle ===== -->
+  <section class="schedule-section debug-section" id="sec-debug" aria-labelledby="hdr-debug">
+    <button type="button" class="section-header" id="hdr-debug"
+            aria-expanded="false" aria-controls="body-debug">
+      <span>Diagnostics</span>
+      <svg class="section-chevron" viewBox="0 0 16 16" aria-hidden="true">
+        <polyline points="3 6 8 11 13 6"/>
+      </svg>
+    </button>
+    <div class="section-body" id="body-debug" hidden>
+      <div class="debug-toggle-row">
+        <label class="debug-label" for="chk-debug">
+          <span>Verbose debug logging</span>
+          <span class="debug-hint">Writes LOG_DEBUG entries to the system journal. Persists across restarts. Disable when not troubleshooting.</span>
+        </label>
+        <div class="debug-control">
+          <input type="checkbox" id="chk-debug" role="switch" aria-label="Enable verbose debug logging">
+          <span id="debug-indicator" class="toggle-indicator" aria-live="polite"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- ===== end diagnostics ===== -->
+
 </main>
+
+<!-- ===== M7: Import modal ===== -->
+<div id="import-modal" class="modal-backdrop" hidden aria-hidden="true">
+  <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="import-modal-title" tabindex="-1">
+    <h2 id="import-modal-title" class="modal-title">Import configuration</h2>
+    <p class="modal-hint">
+      Select a JSON export file from this app. The import will replace all
+      anchors, calendar entries, and schedule enable states atomically.
+    </p>
+    <div class="modal-file-row">
+      <label for="import-file" class="modal-file-label">
+        Configuration file
+        <input type="file" id="import-file" accept="application/json" aria-label="Select configuration JSON file">
+      </label>
+    </div>
+    <p id="import-status" class="status" aria-live="polite"></p>
+    <div class="modal-actions">
+      <button type="button" id="btn-import-submit" class="btn-primary">Import</button>
+      <button type="button" id="btn-import-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<!-- ===== end import modal ===== -->
+
 <script src="js/schedule.js"></script>
 </body>
 </html>

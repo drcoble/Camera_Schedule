@@ -20,23 +20,23 @@
   </div>
 
   <!-- Anchor list -->
-  <section class="card" id="list-section">
+  <section class="card" id="list-section" aria-labelledby="list-heading">
     <div class="crud-header">
       <h2 id="list-heading">Operator anchors</h2>
       <span class="crud-count" id="anchor-count" aria-live="polite"></span>
       <button type="button" id="btn-new" class="btn-new">+ New anchor</button>
     </div>
-    <p class="cap-note" id="cap-note" hidden>
+    <p class="cap-note" id="cap-note" role="status" hidden>
       Maximum 64 anchors reached. Delete one before adding another.
     </p>
 
-    <table class="crud-table" id="anchor-table" aria-describedby="list-heading">
+    <table class="crud-table" id="anchor-table" aria-labelledby="list-heading" aria-describedby="anchor-count">
       <thead>
         <tr>
           <th scope="col">Name</th>
           <th scope="col">Kind</th>
           <th scope="col">Source / detail</th>
-          <th scope="col" class="col-actions">Actions</th>
+          <th scope="col" class="col-actions"><span class="sr-only">Row actions</span></th>
         </tr>
       </thead>
       <tbody id="anchor-tbody">
@@ -46,7 +46,7 @@
   </section>
 
   <!-- Create / Edit form -->
-  <section class="card" id="form-section" hidden>
+  <section class="card" id="form-section" aria-labelledby="form-heading" hidden>
     <h2 id="form-heading">New anchor</h2>
 
     <form id="anchor-form" novalidate>
@@ -218,7 +218,7 @@
         </div>
       </div>
 
-      <p id="form-status" class="status" aria-live="polite"></p>
+      <p id="form-status" class="status" role="status" aria-live="polite"></p>
 
       <div class="actions">
         <button type="submit" id="btn-submit">Save anchor</button>

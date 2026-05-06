@@ -8,11 +8,19 @@
 </head>
 <body>
 <main>
-  <h1>Camera Schedule</h1>
-  <p class="tagline">Solar event triggers from the camera's geographic location.</p>
+  <div class="app-nav">
+    <h1>Camera Schedule</h1>
+    <nav aria-label="App sections">
+      <a href="schedule.html">Schedules</a>
+      <a href="anchors.html">Anchors</a>
+      <a href="calendar.html">Calendar</a>
+      <a href="location.html" aria-current="page">Location</a>
+      <a href="about.html">About</a>
+    </nav>
+  </div>
 
-  <section class="card">
-    <h2>Camera location</h2>
+  <section class="card" aria-labelledby="location-heading">
+    <h2 id="location-heading">Camera location</h2>
     <p>
       Sunrise and sunset are computed from this latitude/longitude. The
       values are read from and written to the camera's geolocation
@@ -20,19 +28,21 @@
       service (per DL-07).
     </p>
 
-    <form id="location-form">
+    <form id="location-form" novalidate aria-describedby="location-status">
       <div class="row">
         <label for="lat">Latitude</label>
         <input id="lat" name="lat" type="number" inputmode="decimal"
-               step="any" min="-90" max="90" required>
-        <span class="hint">−90 (South) to 90 (North)</span>
+               step="any" min="-90" max="90" required
+               aria-describedby="lat-hint">
+        <span id="lat-hint" class="hint">−90 (South) to 90 (North)</span>
       </div>
 
       <div class="row">
         <label for="lon">Longitude</label>
         <input id="lon" name="lon" type="number" inputmode="decimal"
-               step="any" min="-180" max="180" required>
-        <span class="hint">−180 (West) to 180 (East)</span>
+               step="any" min="-180" max="180" required
+               aria-describedby="lon-hint">
+        <span id="lon-hint" class="hint">−180 (West) to 180 (East)</span>
       </div>
 
       <div class="actions">
@@ -41,13 +51,7 @@
       </div>
     </form>
 
-    <p id="status" class="status" aria-live="polite"></p>
-  </section>
-
-  <section class="card">
-    <p>
-      <a href="about.html">About this build &rarr;</a>
-    </p>
+    <p id="location-status" class="status" aria-live="polite"></p>
   </section>
 </main>
 <script src="js/location.js"></script>

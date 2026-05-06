@@ -3,34 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Camera Schedule</title>
+<title>Camera Schedule — About</title>
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 <main>
-  <h1>Camera Schedule</h1>
-  <p class="tagline">
-    Solar, lunar, and seasonal event triggers from the camera's geographic location.
-  </p>
+  <div class="app-nav">
+    <h1>Camera Schedule</h1>
+    <nav aria-label="App sections">
+      <a href="schedule.html">Schedules</a>
+      <a href="anchors.html">Anchors</a>
+      <a href="calendar.html">Calendar</a>
+      <a href="location.html">Location</a>
+      <a href="about.html" aria-current="page">About</a>
+    </nav>
+  </div>
 
-  <section class="card">
-    <h2>About this build</h2>
-    <dl id="about">
+  <section class="card" aria-labelledby="about-heading">
+    <h2 id="about-heading">About this build</h2>
+    <dl id="about" aria-label="Build information">
       <dt>Name</dt>      <dd id="about-name">…</dd>
       <dt>Version</dt>   <dd id="about-version">…</dd>
       <dt>Architecture</dt> <dd id="about-arch">…</dd>
     </dl>
-    <p id="about-error" class="error" hidden></p>
-  </section>
-
-  <section class="card">
-    <h2>Status</h2>
-    <p>
-      M1 milestone build — the application boots and serves this page,
-      but does not yet register any event topics. Sunrise/sunset and
-      the rest of the solar suite arrive in M2 / M3. See the project's
-      <code>IMPLEMENTATION.md</code> for the roadmap.
-    </p>
+    <p id="about-error" class="error" role="alert" hidden></p>
   </section>
 </main>
 <script src="js/app.js"></script>
