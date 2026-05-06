@@ -50,6 +50,72 @@ is wired up in the camera's own UI.
   duplicate anchor names) SHALL be rejected with a clear error message and
   SHALL NOT persist.
 
+- **FR-11.6 — Schedule list view.** The UI SHALL present every schedule
+  the app exposes — built-in solar / lunar / seasonal events,
+  operator-defined anchors ([FR-7](./07-schedule-anchors.md)), and
+  calendar entries ([FR-6](./06-user-calendar-dates.md)) — in a unified
+  **Schedule list view** with the following structure:
+
+  - **Grouping.** Schedules SHALL be organized into labeled, collapsible
+    sections (Solar events, Lunar events, Seasonal events, User
+    anchors, Calendar entries). Each section header SHALL display the
+    count of enabled vs. total schedules in that section.
+  - **Search.** A single text-input search field SHALL filter visible
+    rows by name substring in real time (no submit action). Sections
+    that contain no matching rows SHALL collapse automatically while a
+    filter is active.
+  - **Per-row content.** Each schedule row SHALL display, at minimum:
+    an enable/disable toggle, the schedule's human name, and the
+    computed next-fire time for the current day — or a diagnostic
+    phrase such as `not firing today` (polar / no-event-today,
+    [FR-3](./03-solar-events.md)) or `disabled — topic registered`
+    (toggled off, [FR-11.7](#fr-117-schedule-enabledisable-semantics)).
+  - **Inline actions.** Operator-defined anchor and calendar-entry
+    rows SHALL additionally present **Edit** and **Delete** inline
+    actions. Built-in solar / lunar / seasonal event rows SHALL NOT
+    present a Delete action; they SHALL show a non-deletable visual
+    indicator (e.g. a lock glyph).
+  - **Save semantics.** Toggle-state changes SHALL be persisted
+    immediately on click without a separate page-level Save action.
+    The row SHALL display a transient `Saving…` indicator and SHALL
+    revert the toggle and display a `Failed — retry?` message on a
+    backend error. Writes SHALL target the `events` FastCGI endpoint
+    (admin-gated per [DL-13](./28-decision-log.md)).
+
+  The list view MUST scale gracefully past 50 rows (M3 reaches ~22
+  built-ins, M6 adds up to 64 user-defined anchors plus calendar
+  entries) without pagination; section grouping plus the search field
+  is the entire navigation strategy.
+
+- **FR-11.7 — Schedule enable/disable semantics.** The app SHALL
+  maintain a persistent enable-state store at
+  `localdata/schedule_enabled.json`, keyed by schedule ID, with the
+  following contract:
+
+  - **Default-enabled.** Absent keys SHALL be treated as enabled. A
+    newly added built-in (introduced by an `.eap` upgrade) or
+    operator-defined schedule SHALL fire on its next computed time
+    until the operator explicitly disables it.
+  - **Suppress firing, preserve declaration.** Disabling a schedule
+    SHALL prevent the recompute pipeline from arming a GLib timer for
+    that schedule (see [FR-9.2](./09-event-firing.md) and
+    [FR-8.8](./08-event-registration.md)). Disabling SHALL NOT
+    undeclare the AXEvent topic. The topic SHALL remain visible in
+    the camera's Action Rules UI and SHALL accept new operator
+    bindings while disabled. Re-enabling SHALL resume firing on the
+    next recompute cycle without changing the topic's declared form.
+  - **Orphan keys.** Enable-state entries for IDs that no longer
+    correspond to a registered schedule (e.g. a deleted user anchor)
+    SHALL be silently ignored at boot. Active cleanup is not required.
+  - **Survival.** The store SHALL survive reboot and `.eap` upgrade
+    via the existing [FR-12](./12-configuration-persistence.md)
+    `localdata/` persistence model.
+
+  This separation is captured in [DL-18](./28-decision-log.md): the
+  registration path (`ax_event_handler_declare`) is unaffected by
+  enable/disable; only the firing path
+  (`arm_event_slot` in `timers.c`) is gated.
+
 ## Notes
 
 - The reverse-proxy + FastCGI path is used uniformly across both

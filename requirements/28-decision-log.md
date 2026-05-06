@@ -524,3 +524,83 @@ change it.
 
 **References.** [01-geo-location.md](./01-geo-location.md) FR-1.6,
 [11-configuration-ui.md](./11-configuration-ui.md).
+
+---
+
+## DL-18 — Schedule enable/disable: declared-but-suppressed firing model
+
+Date: 2026-05-05  |  Status: accepted
+
+**Decision.** Enabling and disabling individual schedules (built-in
+and operator-defined) is controlled entirely on the **firing path**,
+not the registration path. A disabled schedule's ACAP event topic
+remains declared via `ax_event_handler_declare`; only the GLib timer
+arming step in the recompute pipeline is skipped. Enable/disable state
+is persisted in a flat JSON override file at
+`localdata/schedule_enabled.json`, keyed by schedule ID, with the
+"absent key = enabled" default. All schedules — built-in and
+operator-defined — default to enabled on first use. The Schedule list
+view in the configuration UI groups schedules into collapsible category
+sections with a per-section enabled/total count; individual toggle
+writes are committed immediately on click without a page-level Save
+action; the backend endpoint is admin-gated per
+[DL-13](./28-decision-log.md).
+
+**Rationale.** Three constraints shaped the declared-but-suppressed
+model:
+
+1. **Camera Action-Rules UI stability.** The camera's Action Rules UI
+   enumerates topics from the AXEvent declaration table. If a disabled
+   topic is undeclared, any action rule the operator has already bound
+   to it becomes a dangling reference — visible in the camera's own
+   UI as a broken rule. That breakage is worse than a topic that
+   silently never fires.
+2. **Reservation of undeclare for structural changes.** [FR-8.5](./08-event-registration.md)
+   already reserves `ax_event_handler_undeclare` for operator-driven
+   add / remove / rename. A user's intent to *temporarily suppress
+   firing* is a distinct operation that should not disrupt the
+   registration state.
+3. **Implementation simplicity.** The fire-suppression model is a
+   single `if (!enabled) continue;` guard in `arm_event_slot`
+   (`app/src/timers.c`). It requires zero AXEvent API calls, no
+   re-declare ordering concerns at boot, and no special handling for
+   pulse vs. stateful topics.
+
+The flat JSON override file (rather than co-mingling enabled state
+with `app/settings/events.json`) keeps the build-time declarative list
+clean and upgrade-safe. The override file lives in `localdata/` per
+[FR-12](./12-configuration-persistence.md) and survives firmware /
+`.eap` upgrade.
+
+**Removed / changed.**
+
+- [FR-11](./11-configuration-ui.md) gains two new top-level clauses:
+  - **FR-11.6 — Schedule list view** — unified list across built-ins
+    and user-defined entries, collapsible category sections, search
+    field, per-row layout, inline edit/delete for user-defined rows,
+    immediate-write toggle semantics.
+  - **FR-11.7 — Schedule enable/disable semantics** — defines the
+    `localdata/schedule_enabled.json` store, the default-enabled
+    rule, the firing-suppress / declaration-preserve contract, and
+    the orphan-key + survival rules. (The deliverable from the UI
+    review used a finer-grained sub-numbering — FR-11.2-a..e plus
+    FR-11.6 — but the file's existing structure flattens these into
+    FR-11.6 / FR-11.7.)
+- [FR-7.2](./07-schedule-anchors.md) gains **FR-7.2-a** — built-in
+  anchors are individually disable-able from the Schedule list view,
+  remain non-deletable, and have their disable state preserved
+  across reboot and `.eap` upgrade via the FR-11.7 store.
+- [FR-8](./08-event-registration.md) gains **FR-8.8** — codifies that
+  the recompute pipeline gates timer arming on the enable-state store
+  while leaving the registration path untouched.
+- No changes to FR-8.4, FR-8.5, or FR-8.6 — the registration path is
+  unaffected by this decision.
+
+**References.** [FR-7.2](./07-schedule-anchors.md),
+[FR-8.5](./08-event-registration.md),
+[FR-8.8](./08-event-registration.md),
+[FR-9.2](./09-event-firing.md),
+[FR-11.6 / FR-11.7](./11-configuration-ui.md),
+[FR-12](./12-configuration-persistence.md),
+[DL-05](./28-decision-log.md) (Path A event topics),
+[DL-13](./28-decision-log.md) (admin-gated writes).

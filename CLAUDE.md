@@ -31,8 +31,9 @@ In order:
    log is the canonical "current state of thinking."
 4. [`requirements/24-open-questions.md`](./requirements/24-open-questions.md)
    — closed-OQ ledger. All OQ-1…OQ-12 are resolved. New uncertainties
-   get appended here as **OQ-13+** with a corresponding **DL-17+**
-   resolution.
+   get appended here as **OQ-13+** with a corresponding **DL-19+**
+   resolution. (DL-17 captured the lat/lon UI-rounding rule, DL-18 the
+   schedule enable/disable model — neither was triggered by an OQ.)
 5. The numbered requirements files. Functional requirements are in
    `01-…` through `13-…`; cross-cutting (non-functional, platform,
    build, verification, licensing, environment, framework reuse,

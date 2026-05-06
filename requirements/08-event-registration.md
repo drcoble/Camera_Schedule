@@ -85,3 +85,15 @@ schedules so the app could find its own resources during reconciliation.
 Under Path A, ACAP event topics are scoped by `<appName>` in the topic
 path itself — no string-prefix discipline is needed. Removed; see
 [DL-05](./28-decision-log.md).
+
+## FR-8.8 — Enable-state gating on the firing path
+
+The recompute pipeline ([FR-9.2](./09-event-firing.md)) SHALL consult
+the enable-state store ([FR-11.7](./11-configuration-ui.md)) before
+arming a GLib timer for any anchor. Anchors whose effective `enabled`
+state resolves to `false` SHALL be skipped during arm; their per-event
+timer source SHALL remain `NULL` until the next recompute. The
+**registration path** (`ACAP_EVENTS_Add_Event` /
+`ax_event_handler_declare`) SHALL be unaffected — the topic remains
+declared and visible in the Action Rules UI regardless of enable
+state. See [DL-18](./28-decision-log.md) for rationale.

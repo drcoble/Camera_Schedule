@@ -27,6 +27,18 @@ with `offset_minutes=0`, `duration_minutes=null`, `enabled=true`. These
 are non-deletable but can be disabled. They give operators a working
 "sunrise / sunset / civil dawn / …" set without configuring anything.
 
+### FR-7.2-a — Built-in anchor disable surface
+
+Built-in anchors SHALL be individually disable-able from the
+configuration UI Schedule list view
+([FR-11.6](./11-configuration-ui.md)). A disabled built-in anchor
+SHALL retain its registered AXEvent topic
+([FR-8.5](./08-event-registration.md)) and SHALL NOT be deletable by
+the operator. The disable state SHALL persist across reboots and
+`.eap` upgrades via the enable-state store defined in
+[FR-11.7](./11-configuration-ui.md). Re-enabling SHALL resume firing
+on the next recompute cycle.
+
 ## FR-7.3 — Operator-defined anchors
 
 Operators SHALL be able to create, edit, enable/disable, and delete
