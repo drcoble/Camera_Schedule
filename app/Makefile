@@ -63,7 +63,7 @@ DIST_DIR        := $(REPO_ROOT)/dist
 SDK_VERSION     ?= 12.6.0
 UBUNTU_VERSION  ?= 24.04
 
-.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license test test-lunar test-seasonal test-clean
+.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license test test-lunar test-seasonal test-anchors test-calendar test-clean
 
 # ---------------------------------------------------------------------
 # Host-side tests (no docker, no SDK)
@@ -72,24 +72,34 @@ UBUNTU_VERSION  ?= 24.04
 # Solar, lunar, and seasonal tests run natively on the build host. All
 # three modules are pure (no GLib, no ACAP framework) and link against
 # only libm.
-TEST_HOST_DIR     := $(APP_DIR)/test/host
-TEST_HOST_BIN     := $(TEST_HOST_DIR)/build/test_solar
-TEST_LUNAR_BIN    := $(TEST_HOST_DIR)/build/test_lunar
-TEST_SEASONAL_BIN := $(TEST_HOST_DIR)/build/test_seasonal
+TEST_HOST_DIR      := $(APP_DIR)/test/host
+TEST_HOST_BIN      := $(TEST_HOST_DIR)/build/test_solar
+TEST_LUNAR_BIN     := $(TEST_HOST_DIR)/build/test_lunar
+TEST_SEASONAL_BIN  := $(TEST_HOST_DIR)/build/test_seasonal
+TEST_ANCHORS_BIN   := $(TEST_HOST_DIR)/build/test_anchors
+TEST_CALENDAR_BIN  := $(TEST_HOST_DIR)/build/test_calendar
 # C11 for test_lunar.c (uses compound-literal reset idiom); solar only
 # needs C99. Use c11 for the whole set to keep a single CFLAGS line.
-TEST_CFLAGS       := -std=c11 -Wall -Wextra -Wpedantic -O2 -I$(APP_DIR)/src
+TEST_CFLAGS        := -std=c11 -Wall -Wextra -Wpedantic -O2 -I$(APP_DIR)/src
 
-test: $(TEST_HOST_BIN) $(TEST_LUNAR_BIN) $(TEST_SEASONAL_BIN) ## Run host-side test fixtures (solar + lunar + seasonal)
+test: $(TEST_HOST_BIN) $(TEST_LUNAR_BIN) $(TEST_SEASONAL_BIN) $(TEST_ANCHORS_BIN) $(TEST_CALENDAR_BIN) ## Run host-side test fixtures (solar + lunar + seasonal + anchors + calendar)
 	@$(TEST_HOST_BIN)
 	@$(TEST_LUNAR_BIN)
 	@$(TEST_SEASONAL_BIN)
+	@$(TEST_ANCHORS_BIN)
+	@$(TEST_CALENDAR_BIN)
 
 test-lunar: $(TEST_LUNAR_BIN) ## Build and run the lunar test suite
 	@$(TEST_LUNAR_BIN)
 
 test-seasonal: $(TEST_SEASONAL_BIN) ## Build and run the seasonal test suite
 	@$(TEST_SEASONAL_BIN)
+
+test-anchors: $(TEST_ANCHORS_BIN) ## Build and run the anchors test suite
+	@$(TEST_ANCHORS_BIN)
+
+test-calendar: $(TEST_CALENDAR_BIN) ## Build and run the calendar test suite
+	@$(TEST_CALENDAR_BIN)
 
 $(TEST_HOST_BIN): $(APP_DIR)/src/astro/solar.c \
                   $(APP_DIR)/src/astro/solar.h \
@@ -117,6 +127,50 @@ $(TEST_SEASONAL_BIN): $(APP_DIR)/src/astro/seasonal.c \
 	  $(APP_DIR)/src/astro/seasonal.c \
 	  $(TEST_HOST_DIR)/test_seasonal.c \
 	  -lm -o $(TEST_SEASONAL_BIN)
+
+# test_anchors links against lunar.c (for lunar_illumination in §2),
+# plus anchors.c and calendar.c (Phase 2 implementation, not yet written).
+# All three astro modules are included because anchors.c calls into them
+# when resolving built-in event sources. The rule will fail to build until
+# Phase 2 delivers anchors.c and calendar.c — that is expected.
+#
+# Makefile-merge note for integration: the staff engineer's Makefile diff
+# adds anchors.c and calendar.c to the OBJS list for the in-container
+# build. This test-target diff adds them to the test-anchors link line.
+# The two diffs touch different variables and do not conflict, but the
+# merge author should verify OBJS and the test link line are consistent.
+$(TEST_ANCHORS_BIN): $(APP_DIR)/src/anchors.h \
+                     $(APP_DIR)/src/calendar.h \
+                     $(APP_DIR)/src/astro/lunar.h \
+                     $(APP_DIR)/src/astro/solar.h \
+                     $(APP_DIR)/src/astro/seasonal.h \
+                     $(APP_DIR)/src/anchors.c \
+                     $(APP_DIR)/src/calendar.c \
+                     $(APP_DIR)/src/astro/lunar.c \
+                     $(APP_DIR)/src/astro/solar.c \
+                     $(APP_DIR)/src/astro/seasonal.c \
+                     $(TEST_HOST_DIR)/test_anchors.c
+	@mkdir -p $(TEST_HOST_DIR)/build
+	$(CC) $(TEST_CFLAGS) \
+	  $(APP_DIR)/src/anchors.c \
+	  $(APP_DIR)/src/calendar.c \
+	  $(APP_DIR)/src/astro/lunar.c \
+	  $(APP_DIR)/src/astro/solar.c \
+	  $(APP_DIR)/src/astro/seasonal.c \
+	  $(TEST_HOST_DIR)/test_anchors.c \
+	  -lm -o $(TEST_ANCHORS_BIN)
+
+# test_calendar links against calendar.c only (no astro dependency in
+# the calendar module's public surface). Will fail to build until Phase 2
+# delivers calendar.c.
+$(TEST_CALENDAR_BIN): $(APP_DIR)/src/calendar.h \
+                      $(APP_DIR)/src/calendar.c \
+                      $(TEST_HOST_DIR)/test_calendar.c
+	@mkdir -p $(TEST_HOST_DIR)/build
+	$(CC) $(TEST_CFLAGS) \
+	  $(APP_DIR)/src/calendar.c \
+	  $(TEST_HOST_DIR)/test_calendar.c \
+	  -lm -o $(TEST_CALENDAR_BIN)
 
 test-clean: ## Remove host test build outputs
 	rm -rf $(TEST_HOST_DIR)/build
