@@ -174,6 +174,10 @@ typedef struct {
 static anchor_slot_t* anchor_slots      = NULL;
 static size_t         anchor_slot_count = 0;
 
+// Forward decl — cancel_source is defined below in the Helpers section
+// but anchor_slots_cleanup needs it.
+static void cancel_source(GSource** src);
+
 static void anchor_slots_cleanup(void) {
     if (!anchor_slots) return;
     for (size_t i = 0; i < anchor_slot_count; i++) {

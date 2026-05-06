@@ -332,6 +332,13 @@ int anchors_delete(const char* id);
 // gate. The HTTP `events` endpoint dispatches here.
 int anchors_set_enabled(const char* id, int enabled);
 
+// Read the current FR-11.7 enable state for an anchor or calendar entry,
+// consulting the in-memory cache populated from
+// `localdata/schedule_enabled.json`. Absent keys → enabled (default-on).
+// Returns 1 (enabled) or 0 (disabled). NULL or unknown id → 1, so the
+// firing-path gate fails open if the cache hasn't been initialized yet.
+int anchors_is_enabled(const char* id);
+
 // Atomic bulk replacement of the operator-defined anchor list. Used by
 // the POST /anchors "replace all" mode (and by future M7 import). The
 // caller passes an array of `count` operator anchors; built-ins are

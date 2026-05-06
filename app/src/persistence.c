@@ -19,7 +19,7 @@
 
 #define LOG(fmt, args...)      do { syslog(LOG_INFO,    fmt, ## args); } while (0)
 #define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
-#define LOG_ERR(fmt, args...)  do { syslog(LOG_ERR,     fmt, ## args); } while (0)
+#define LOG_ERROR(fmt, args...)  do { syslog(LOG_ERR,     fmt, ## args); } while (0)
 
 // Build "<sandbox><relative>" into `out`. Returns 0 on success, -1 on
 // truncation. The sandbox prefix already ends in '/'.
@@ -64,26 +64,26 @@ int persistence_write_atomic(const char*             relative_path,
     char final_path[256];
     char temp_path[256];
     if (build_full_path(final_path, sizeof final_path, relative_path) != 0) {
-        LOG_ERR("persistence: relative path '%s' too long", relative_path);
+        LOG_ERROR("persistence: relative path '%s' too long", relative_path);
         return -1;
     }
     int n = snprintf(temp_path, sizeof temp_path, "%s.tmp", final_path);
     if (n < 0 || (size_t)n >= sizeof temp_path) {
-        LOG_ERR("persistence: temp path for '%s' too long", relative_path);
+        LOG_ERROR("persistence: temp path for '%s' too long", relative_path);
         return -1;
     }
 
     // Serialize. cJSON_Print returns a malloc'd string; caller frees.
     char* serialized = cJSON_Print((cJSON*)payload);
     if (!serialized) {
-        LOG_ERR("persistence: cJSON_Print failed for '%s'", relative_path);
+        LOG_ERROR("persistence: cJSON_Print failed for '%s'", relative_path);
         return -1;
     }
 
     // Open the temp file with O_CREAT|O_TRUNC. Use fdopen for fsync.
     int fd = open(temp_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        LOG_ERR("persistence: open(%s) failed: %s", temp_path, strerror(errno));
+        LOG_ERROR("persistence: open(%s) failed: %s", temp_path, strerror(errno));
         free(serialized);
         return -1;
     }
@@ -94,7 +94,7 @@ int persistence_write_atomic(const char*             relative_path,
         ssize_t w = write(fd, serialized + written, to_write - written);
         if (w < 0) {
             if (errno == EINTR) continue;
-            LOG_ERR("persistence: write(%s) failed: %s", temp_path, strerror(errno));
+            LOG_ERROR("persistence: write(%s) failed: %s", temp_path, strerror(errno));
             close(fd);
             unlink(temp_path);
             free(serialized);
@@ -104,7 +104,7 @@ int persistence_write_atomic(const char*             relative_path,
     }
 
     if (fsync(fd) != 0) {
-        LOG_ERR("persistence: fsync(%s) failed: %s", temp_path, strerror(errno));
+        LOG_ERROR("persistence: fsync(%s) failed: %s", temp_path, strerror(errno));
         close(fd);
         unlink(temp_path);
         free(serialized);
@@ -117,14 +117,14 @@ int persistence_write_atomic(const char*             relative_path,
     if (validator) {
         cJSON* parsed = parse_back(temp_path);
         if (!parsed) {
-            LOG_ERR("persistence: parse-back of '%s' failed", temp_path);
+            LOG_ERROR("persistence: parse-back of '%s' failed", temp_path);
             unlink(temp_path);
             return -1;
         }
         int ok = validator(parsed, user_data);
         cJSON_Delete(parsed);
         if (!ok) {
-            LOG_ERR("persistence: schema validation rejected '%s'", relative_path);
+            LOG_ERROR("persistence: schema validation rejected '%s'", relative_path);
             unlink(temp_path);
             return -1;
         }
@@ -133,7 +133,7 @@ int persistence_write_atomic(const char*             relative_path,
     // Atomic rename — POSIX guarantees this is atomic on the same
     // filesystem (which is the case inside the ACAP sandbox).
     if (rename(temp_path, final_path) != 0) {
-        LOG_ERR("persistence: rename(%s -> %s) failed: %s",
+        LOG_ERROR("persistence: rename(%s -> %s) failed: %s",
                 temp_path, final_path, strerror(errno));
         unlink(temp_path);
         return -1;
@@ -155,11 +155,11 @@ int persistence_quarantine(const char* relative_path) {
     if (n < 0 || (size_t)n >= sizeof broken_path) return -1;
 
     if (rename(full_path, broken_path) != 0) {
-        LOG_ERR("persistence: quarantine rename(%s -> %s) failed: %s",
+        LOG_ERROR("persistence: quarantine rename(%s -> %s) failed: %s",
                 full_path, broken_path, strerror(errno));
         return -1;
     }
-    LOG_ERR("persistence: quarantined malformed file '%s' as '%s'",
+    LOG_ERROR("persistence: quarantined malformed file '%s' as '%s'",
             relative_path, broken_path);
     return 0;
 }

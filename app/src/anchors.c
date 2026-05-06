@@ -47,7 +47,7 @@
 
 #define LOG(fmt, args...)      do { syslog(LOG_INFO,    fmt, ## args); } while (0)
 #define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
-#define LOG_ERR(fmt, args...)  do { syslog(LOG_ERR,     fmt, ## args); } while (0)
+#define LOG_ERROR(fmt, args...)  do { syslog(LOG_ERR,     fmt, ## args); } while (0)
 
 // ---------------------------------------------------------------------
 // 1. State
@@ -461,7 +461,7 @@ static void apply_enabled_to_anchors_locked(void) {
 static int seed_built_ins(void) {
     cJSON* events = ACAP_FILE_Read("settings/events.json");
     if (!events || !cJSON_IsArray(events)) {
-        LOG_ERR("anchors_init: settings/events.json missing or malformed");
+        LOG_ERROR("anchors_init: settings/events.json missing or malformed");
         if (events) cJSON_Delete(events);
         return -1;
     }
@@ -513,12 +513,12 @@ static void load_operator_anchors_locked(void) {
     }
     cJSON* arr = ACAP_FILE_Read("localdata/anchors.json");
     if (!arr) {
-        LOG_ERR("anchors_init: localdata/anchors.json unreadable");
+        LOG_ERROR("anchors_init: localdata/anchors.json unreadable");
         persistence_quarantine("localdata/anchors.json");
         return;
     }
     if (!cJSON_IsArray(arr)) {
-        LOG_ERR("anchors_init: anchors.json is not a JSON array");
+        LOG_ERROR("anchors_init: anchors.json is not a JSON array");
         cJSON_Delete(arr);
         persistence_quarantine("localdata/anchors.json");
         return;
@@ -529,7 +529,7 @@ static void load_operator_anchors_locked(void) {
         cJSON* el = cJSON_GetArrayItem(arr, i);
         anchor_t a;
         if (anchor_from_json(el, &a) != 0) {
-            LOG_ERR("anchors_init: anchors.json entry %d malformed", i);
+            LOG_ERROR("anchors_init: anchors.json entry %d malformed", i);
             cJSON_Delete(arr);
             persistence_quarantine("localdata/anchors.json");
             // Roll back partial loads — operator slice starts empty.
@@ -537,14 +537,14 @@ static void load_operator_anchors_locked(void) {
             return;
         }
         if (validate_anchor_fields(&a) != ANCHORS_OK) {
-            LOG_ERR("anchors_init: anchors.json entry %d failed validation", i);
+            LOG_ERROR("anchors_init: anchors.json entry %d failed validation", i);
             cJSON_Delete(arr);
             persistence_quarantine("localdata/anchors.json");
             g_count = g_n_built_in;
             return;
         }
         if (anchor_id_taken_locked(a.id)) {
-            LOG_ERR("anchors_init: anchors.json entry %d ('%s') collides with built-in",
+            LOG_ERROR("anchors_init: anchors.json entry %d ('%s') collides with built-in",
                     i, a.id);
             cJSON_Delete(arr);
             persistence_quarantine("localdata/anchors.json");
@@ -573,7 +573,7 @@ static void load_enabled_store_locked(void) {
     cJSON* o = ACAP_FILE_Read("localdata/schedule_enabled.json");
     if (!o || !cJSON_IsObject(o)) {
         if (o) cJSON_Delete(o);
-        LOG_ERR("anchors_init: schedule_enabled.json malformed; starting empty");
+        LOG_ERROR("anchors_init: schedule_enabled.json malformed; starting empty");
         persistence_quarantine("localdata/schedule_enabled.json");
         g_enabled_store = cJSON_CreateObject();
         return;

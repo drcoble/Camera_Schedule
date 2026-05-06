@@ -30,7 +30,7 @@
 
 #define LOG(fmt, args...)      do { syslog(LOG_INFO,    fmt, ## args); } while (0)
 #define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
-#define LOG_ERR(fmt, args...)  do { syslog(LOG_ERR,     fmt, ## args); } while (0)
+#define LOG_ERROR(fmt, args...)  do { syslog(LOG_ERR,     fmt, ## args); } while (0)
 
 // Forward decl from anchors.c — used for the cross-namespace collision
 // check at create / replace_all time.
@@ -354,7 +354,7 @@ static void load_from_file_locked(void) {
     cJSON* arr = ACAP_FILE_Read("localdata/calendar.json");
     if (!arr || !cJSON_IsArray(arr)) {
         if (arr) cJSON_Delete(arr);
-        LOG_ERR("calendar_init: calendar.json malformed; quarantining");
+        LOG_ERROR("calendar_init: calendar.json malformed; quarantining");
         persistence_quarantine("localdata/calendar.json");
         return;
     }
@@ -364,14 +364,14 @@ static void load_from_file_locked(void) {
         cJSON* el = cJSON_GetArrayItem(arr, i);
         calendar_entry_t e;
         if (entry_from_json(el, &e) != 0 || validate_entry(&e) != CALENDAR_OK) {
-            LOG_ERR("calendar_init: entry %d malformed; quarantining file", i);
+            LOG_ERROR("calendar_init: entry %d malformed; quarantining file", i);
             cJSON_Delete(arr);
             persistence_quarantine("localdata/calendar.json");
             g_count = 0;
             return;
         }
         if (find_idx_locked(e.id) >= 0) {
-            LOG_ERR("calendar_init: entry %d ('%s') duplicate; quarantining",
+            LOG_ERROR("calendar_init: entry %d ('%s') duplicate; quarantining",
                     i, e.id);
             cJSON_Delete(arr);
             persistence_quarantine("localdata/calendar.json");
