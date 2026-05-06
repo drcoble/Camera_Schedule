@@ -4,27 +4,59 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**M0–M3 complete.** Tagged releases: `v0.1.0` (M1 build pipeline +
+**M0–M3 shipped.** Tagged releases: `v0.1.0` (M1 build pipeline +
 empty `.eap`), `v0.2.0` (M2 sunrise/sunset MVP), `v0.3.0` (M3 full
 solar suite + polar safety).
 
-The current application boots a GLib main loop, exposes
-`about` / `location` FastCGI endpoints, declares 10 AXEvent topics
-covering the full FR-3 solar suite (sunrise/sunset, civil/nautical/
-astronomical twilight pairs, solar noon, solar midnight), and arms
-per-event GLib timers from a Meeus-based solar-position routine. All
-10 topics are bound to operator action rules in the lab cameras'
-Action Rules UI; polar latitudes correctly produce SOLAR_NO_EVENT
-INFO logs for sunrise/sunset while keeping solar noon/midnight armed.
-Worst host-fixture error is 40 s of FR-3.7's 60 s tier-1 budget.
+**M4 + M5 code-complete and lab-installed; calendar-locked gates
+pending.** Both `.eap` artifacts are running v0.5.0 on both lab
+cameras (10.1.40.113 / OS 12.10.61, 10.1.40.160 / OS 11.11.192).
+Tags `v0.4.0` and `v0.5.0` are deliberately held until the firing
+gates verify on their respective dates:
 
-Next milestone is **M4 — Lunar events** per
-[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). M4 introduces a new
-`app/src/astro/lunar.c|h` for moonrise / moonset / lunar transit /
-phases (Meeus chapters 47 + 49) and adds 8 new entries to
-`settings/events.json`. Don't take on M5+ work until M4's lab-camera
-gate (`fullmoon` action rule fires on the next published full-moon
-date) is verified.
+- **M4 fullmoon gate**: 2026-05-31 (next full moon). Verifies the
+  lunar-phase scheduler in `timers.c` correctly re-arms after fire.
+- **M5 junesolstice gate**: 2026-06-21 08:24 UTC. Verifies the
+  seasonal scheduler and that the `Longest Day` hemisphere-aware
+  label renders correctly in the Action Rules UI for Northern lat.
+
+The current application boots a GLib main loop, exposes
+`about` / `location` FastCGI endpoints, and declares **22 AXEvent
+topics**:
+
+- 10 solar (FR-3): sunrise/sunset, civil/nautical/astronomical
+  twilight pairs, solar noon, solar midnight (Meeus solar position).
+- 8 lunar (FR-4): moonrise/moonset/transit/anti-transit (daily,
+  parallax-aware via Meeus ch. 47 hourly altitude sampling) +
+  newmoon/firstquarter/fullmoon/lastquarter (Meeus ch. 49 phases).
+- 4 seasonal (FR-5): marchequinox/junesolstice/septemberequinox/
+  decembersolstice (Meeus ch. 27 closed-form + Table 27.C corrections
+  + Espenak-Meeus ΔT, see DL-19).
+
+Three scheduler patterns coexist in `timers.c`:
+
+- **Daily slots** (10 solar + 4 lunar daily) — recomputed at local
+  civil midnight, armed for the new UTC date.
+- **Phase slots** (4 lunar phases) — observer-independent, ~29.5 d
+  cadence, re-arms in own fire callback. Armed once at boot.
+- **Season slots** (4 seasonal) — observer-independent, ~91 d
+  cadence, re-arms in own fire callback. Armed once at boot.
+
+Phase + season slots are NOT touched by `timers_recompute_now()`
+since lat/lon changes don't affect them. Hemisphere-aware solstice
+labels (FR-5.2) are rebound by `apply_seasonal_labels()` in main.c
+at boot and on every location POST.
+
+Polar latitudes still produce SOLAR_NO_EVENT / LUNAR_NO_EVENT INFO
+logs for rise/set while keeping the noon/midnight/transit slots
+armed. Host-fixture worst errors: solar 40s of FR-3.7's 60s tier-1
+budget; lunar 22s of FR-4.5's 120s budget for habitable rise/set;
+seasonal 60s on a single 2028 boundary fixture, all others ≤50s.
+
+Next milestone is **M6 — Anchors, offsets, and user calendar** per
+[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). Don't tag v0.4.0 or
+v0.5.0 until both calendar gates above have produced observable
+fires from bound action rules.
 
 ## Where to read first
 
