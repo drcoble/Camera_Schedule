@@ -77,13 +77,19 @@ typedef struct {
 // The test uses pre-computed UTC epoch values so it is independent of the
 // host's TZ setting (solar-test convention).
 
-// 2026-03-08T06:00:00Z = 1741420800   (01:00 EST, 1 h before spring-forward)
-// 2026-03-08T07:00:00Z = 1741424400   (03:00 EDT exactly, moment of switch)
-// 2026-11-01T05:30:00Z = 1762076400   (01:30 EDT, 30 min before fall-back)
-// 2026-11-01T06:00:00Z = 1762078200   (01:00 EST, = "second" 01:00)
+// 2026-03-08T06:00:00Z = 1772949600   (01:00 EST, 1 h before spring-forward)
+// 2026-03-08T07:00:00Z = 1772953200   (03:00 EDT exactly, moment of switch)
+// 2026-11-01T05:30:00Z = 1793511000   (01:30 EDT, 30 min before fall-back)
+// 2026-11-01T06:00:00Z = 1793512800   (01:00 EST, = "second" 01:00)
+//
+// Derived via Meeus JDN: JD = 367*Y - INT(7*(Y+INT((M+9)/12))/4)
+//                            + INT(275*M/9) + D + 1721013.5 + H/24
+// unix = (JD - 2440587.5) * 86400
+// 2026-03-08T06:00:00Z: JD=2461107.75  → unix=1772949600
+// 2026-11-01T05:30:00Z: JD=2461345.729 → unix=1793511000
 
-#define SPRING_FWD_SOURCE   ((time_t)1741420800L)   // 2026-03-08T06:00:00Z
-#define FALL_BACK_SOURCE    ((time_t)1762076400L)   // 2026-11-01T05:30:00Z
+#define SPRING_FWD_SOURCE   ((time_t)1772949600L)   // 2026-03-08T06:00:00Z
+#define FALL_BACK_SOURCE    ((time_t)1793511000L)   // 2026-11-01T05:30:00Z
 
 static const offset_fixture_t OFFSET_FIXTURES[] = {
     // --- Spring-forward 2026-03-08 ---
