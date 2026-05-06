@@ -40,12 +40,20 @@ extern "C" {
 #define SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT  108.0
 
 typedef struct {
-    time_t sunrise;     // UTC. SOLAR_NO_EVENT iff sun stays outside the
-                        //      zenith band all day at this lat/date.
-    time_t sunset;      // UTC. Same NO_EVENT condition as sunrise.
-    time_t solar_noon;  // UTC. Always defined — sun crosses the local
-                        //      meridian once per solar day regardless
-                        //      of latitude.
+    time_t sunrise;        // UTC. SOLAR_NO_EVENT iff sun stays outside
+                           //      the zenith band all day at this
+                           //      lat/date.
+    time_t sunset;         // UTC. Same NO_EVENT condition as sunrise.
+    time_t solar_noon;     // UTC. Always defined — sun crosses the
+                           //      local meridian once per solar day
+                           //      regardless of latitude.
+    time_t solar_midnight; // UTC. Anti-transit (sun at lower
+                           //      culmination). Always defined,
+                           //      including in polar regions per
+                           //      FR-3.3. Convention: the solar
+                           //      midnight that falls in the early
+                           //      hours of the input civil date —
+                           //      solar_noon minus 12 hours.
 } solar_events_t;
 
 // Compute the solar events for (lat, lon) on the given Gregorian date

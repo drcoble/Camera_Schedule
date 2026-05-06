@@ -5,8 +5,15 @@
 // scheduler. See timers.h for the public-API contract.
 //
 // Threading model: every callback runs on the GLib main loop thread.
-// No locks needed; the per-event timer-handle table is only ever
+// No locks needed — the per-event timer-handle table is only ever
 // touched from main-loop callbacks.
+//
+// Event slots. Each entry binds an event-topic id (the same string
+// declared in settings/events.json and registered with the AXEvent
+// engine via ACAP_EVENTS_Add_Event) to the way its computed fire time
+// is derived from a solar_events_t struct. M3 covers the full FR-3
+// solar suite: sunrise/sunset, solar noon/midnight, and three
+// twilight zeniths in dawn/dusk pairs.
 
 #define _GNU_SOURCE
 #include "timers.h"
@@ -23,24 +30,42 @@
 #define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
 
 // ---------------------------------------------------------------------
-// State (single GMainContext, single thread, no locks)
+// Slot configuration
 // ---------------------------------------------------------------------
 
-// One slot per registered event topic. M2 ships two: sunrise, sunset.
-// M3+ will grow to ten solar topics; the array is sized for the full
-// solar suite so we don't rewrite this when adding events.
+// Which field of solar_events_t a given event maps to.
+typedef enum {
+    SLOT_RISE,         // sunrise / dawn  — needs a zenith
+    SLOT_SET,          // sunset  / dusk  — needs a zenith
+    SLOT_SOLAR_NOON,   // upper culmination
+    SLOT_SOLAR_MIDNIGHT // lower culmination
+} slot_kind_t;
+
 typedef struct {
-    const char* event_id;     // matches settings/events.json id and
-                              // the topic registered via
-                              // ACAP_EVENTS_Add_Event
-    GSource*    timer;        // NULL when no event is armed today
-                              // (e.g. polar night/day)
+    const char* event_id;     // matches settings/events.json id
+    slot_kind_t kind;
+    double      zenith_deg;   // ignored for SOLAR_NOON / SOLAR_MIDNIGHT
+    GSource*    timer;        // NULL when not currently armed
 } event_slot_t;
 
+// One slot per registered event topic.
+//
+// Note. solar_compute can be called once per zenith and re-used to
+// fill multiple slots; recompute_today() groups slots by zenith below
+// so we only compute three times (sunrise/sunset, civil, nautical,
+// astronomical — and noon/midnight come along for free with any of
+// them since they don't depend on zenith).
 static event_slot_t event_slots[] = {
-    { "sunrise", NULL },
-    { "sunset",  NULL },
-    // Solar noon, twilights, etc. land in M3.
+    { "sunrise",      SLOT_RISE,           SOLAR_ZENITH_SUNRISE_SUNSET,        NULL },
+    { "sunset",       SLOT_SET,            SOLAR_ZENITH_SUNRISE_SUNSET,        NULL },
+    { "sunnoon",      SLOT_SOLAR_NOON,     0.0,                                NULL },
+    { "sunmidnight",  SLOT_SOLAR_MIDNIGHT, 0.0,                                NULL },
+    { "civildawn",    SLOT_RISE,           SOLAR_ZENITH_CIVIL_TWILIGHT,        NULL },
+    { "civildusk",    SLOT_SET,            SOLAR_ZENITH_CIVIL_TWILIGHT,        NULL },
+    { "nauticaldawn", SLOT_RISE,           SOLAR_ZENITH_NAUTICAL_TWILIGHT,     NULL },
+    { "nauticaldusk", SLOT_SET,            SOLAR_ZENITH_NAUTICAL_TWILIGHT,     NULL },
+    { "astrodawn",    SLOT_RISE,           SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT, NULL },
+    { "astrodusk",    SLOT_SET,            SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT, NULL },
 };
 #define EVENT_SLOT_COUNT (sizeof(event_slots) / sizeof(event_slots[0]))
 
@@ -68,15 +93,11 @@ static int seconds_until_local_midnight(time_t now) {
                          + tm_local.tm_min  * 60
                          + tm_local.tm_sec;
     int remaining = 86400 - seconds_into_day;
-    if (remaining <= 0) remaining = 86400;  // defensive; should not happen
+    if (remaining <= 0) remaining = 86400;
     return remaining;
 }
 
-// Fire a single event topic by id. Wrapped so per-event callbacks
-// don't have to know about ACAP's API directly.
-typedef struct {
-    const char* event_id;
-} fire_args_t;
+typedef struct { const char* event_id; } fire_args_t;
 
 static gboolean event_fire_callback(gpointer user_data) {
     fire_args_t* args = (fire_args_t*)user_data;
@@ -84,14 +105,12 @@ static gboolean event_fire_callback(gpointer user_data) {
     int rc = ACAP_EVENTS_Fire(args->event_id);
     if (rc != 0)
         LOG_WARN("ACAP_EVENTS_Fire('%s') returned %d", args->event_id, rc);
-    // Slot's timer pointer is now stale; the slot's owner clears it
-    // by walking the table on the next recompute. Returning
-    // G_SOURCE_REMOVE both detaches the source and releases its ref.
     return G_SOURCE_REMOVE;
 }
 
-// Arm one event slot for the given absolute UTC `when`. If `when` is
-// in the past or equal to SOLAR_NO_EVENT, the slot is left disarmed.
+// Arm one event slot for the given absolute UTC `when`. SOLAR_NO_EVENT
+// or a time in the past leaves the slot disarmed. SOLAR_NO_EVENT
+// emits an INFO log per FR-3.8.
 static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
     cancel_source(&slot->timer);
 
@@ -112,12 +131,8 @@ static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
         LOG_WARN("event '%s': failed to allocate timer source", slot->event_id);
         return;
     }
-
-    // The fire_args lifetime spans the timer; freed by GLib via the
-    // GDestroyNotify when the source is destroyed.
     fire_args_t* args = g_new(fire_args_t, 1);
     args->event_id = slot->event_id;
-
     g_source_set_callback(src, event_fire_callback, args, g_free);
     g_source_attach(src, NULL);
     slot->timer = src;
@@ -126,15 +141,25 @@ static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
         slot->event_id, (long long)when, delay);
 }
 
+// Pick the right time_t out of `e` for a given slot kind.
+static time_t time_for_slot(const event_slot_t* slot, const solar_events_t* e) {
+    switch (slot->kind) {
+        case SLOT_RISE:           return e->sunrise;
+        case SLOT_SET:            return e->sunset;
+        case SLOT_SOLAR_NOON:     return e->solar_noon;
+        case SLOT_SOLAR_MIDNIGHT: return e->solar_midnight;
+    }
+    return SOLAR_NO_EVENT;  // unreachable
+}
+
 // ---------------------------------------------------------------------
 // Recompute pipeline
 // ---------------------------------------------------------------------
 
 static gboolean midnight_timer_callback(gpointer user_data);
 
-// One full daily recompute: read lat/lon from the camera's geolocation
-// service, compute today's solar events, arm each per-event timer.
-// Does NOT (re)arm the midnight timer — call sites do that separately.
+// One full daily recompute: read lat/lon, compute solar events at every
+// zenith we care about, arm each slot's timer.
 static int recompute_today(void) {
     double lat = ACAP_DEVICE_Latitude();
     double lon = ACAP_DEVICE_Longitude();
@@ -150,43 +175,48 @@ static int recompute_today(void) {
     time_t now;
     time(&now);
 
-    // Compute "today" in local civil time. solar_compute treats the
-    // input date as UTC, but for habitable longitudes the local civil
-    // date and the UTC date that contains solar noon coincide — and
-    // sunrise/sunset always fall around solar noon — so passing the
-    // local date works.
     struct tm tm_local;
     localtime_r(&now, &tm_local);
     int year  = tm_local.tm_year + 1900;
     int month = tm_local.tm_mon  + 1;
     int day   = tm_local.tm_mday;
 
-    solar_events_t e;
-    int rc = solar_compute(lat, lon, year, month, day,
-                           SOLAR_ZENITH_SUNRISE_SUNSET, &e);
-    if (rc != 0) {
-        LOG_WARN("solar_compute failed for lat=%f lon=%f date=%04d-%02d-%02d",
-                 lat, lon, year, month, day);
+    LOG("Recomputing solar events for lat=%f lon=%f date=%04d-%02d-%02d",
+        lat, lon, year, month, day);
+
+    // Compute once per zenith. Solar noon/midnight are zenith-
+    // independent, so any compute call's `solar_noon` / `solar_midnight`
+    // fields are usable — we take them from the standard sunrise/sunset
+    // call below.
+    solar_events_t e_std = {0}, e_civil = {0}, e_naut = {0}, e_astro = {0};
+
+    if (solar_compute(lat, lon, year, month, day,
+                      SOLAR_ZENITH_SUNRISE_SUNSET, &e_std) != 0) {
+        LOG_WARN("solar_compute (standard) failed");
         return -1;
     }
+    (void)solar_compute(lat, lon, year, month, day,
+                        SOLAR_ZENITH_CIVIL_TWILIGHT, &e_civil);
+    (void)solar_compute(lat, lon, year, month, day,
+                        SOLAR_ZENITH_NAUTICAL_TWILIGHT, &e_naut);
+    (void)solar_compute(lat, lon, year, month, day,
+                        SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT, &e_astro);
 
-    LOG("Recomputed solar events for lat=%f lon=%f date=%04d-%02d-%02d: "
-        "sunrise=%lld sunset=%lld noon=%lld",
-        lat, lon, year, month, day,
-        (long long)e.sunrise, (long long)e.sunset, (long long)e.solar_noon);
+    LOG("solar_noon=%lld solar_midnight=%lld",
+        (long long)e_std.solar_noon, (long long)e_std.solar_midnight);
 
-    // Pair the named events to the computed times. Order must match
-    // the event_slots[] declaration above.
-    time_t event_times[EVENT_SLOT_COUNT] = { e.sunrise, e.sunset };
-
-    for (size_t i = 0; i < EVENT_SLOT_COUNT; i++)
-        arm_event_slot(&event_slots[i], event_times[i], now);
-
+    // Arm each slot from the matching zenith's results.
+    for (size_t i = 0; i < EVENT_SLOT_COUNT; i++) {
+        event_slot_t* slot = &event_slots[i];
+        const solar_events_t* src = &e_std;
+        if (slot->zenith_deg == SOLAR_ZENITH_CIVIL_TWILIGHT)        src = &e_civil;
+        else if (slot->zenith_deg == SOLAR_ZENITH_NAUTICAL_TWILIGHT) src = &e_naut;
+        else if (slot->zenith_deg == SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT) src = &e_astro;
+        arm_event_slot(slot, time_for_slot(slot, src), now);
+    }
     return 0;
 }
 
-// Arm the next-midnight timer. The callback recomputes the day's
-// events and rearms itself.
 static void arm_midnight_timer(void) {
     cancel_source(&midnight_timer);
 
@@ -211,7 +241,7 @@ static gboolean midnight_timer_callback(gpointer user_data) {
     LOG("Local midnight reached; recomputing daily events");
     (void)recompute_today();
     arm_midnight_timer();
-    return G_SOURCE_REMOVE;  // detach the just-fired source; new one is armed
+    return G_SOURCE_REMOVE;
 }
 
 // ---------------------------------------------------------------------

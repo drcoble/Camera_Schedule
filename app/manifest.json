@@ -8,7 +8,7 @@
       "vendorUrl": "https://github.com/drcoble/Camera_Schedule",
       "embeddedSdkVersion": "3.0",
       "runMode": "respawn",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     "configuration": {
       "settingPage": "location.html",

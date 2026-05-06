@@ -153,6 +153,36 @@ The Makefile's `stage-license` prerequisite copies the root `LICENSE`
 into `app/LICENSE` (gitignored) so `acap-build` can find it without
 having two LICENSE files in git.
 
+### Adding files to the .eap
+
+`acap-build` only auto-bundles a fixed set of well-known directories
+(`html/`, `lib/`) plus standard files (`LICENSE`, `manifest.json`,
+the compiled binary). **Anything else is silently dropped** from the
+produced `.eap` — no warning, no exit-code change. The first sign of
+the bug is usually a runtime symptom (an `ACAP_FILE_Read(...)`
+returning NULL, an asset 404 from the web UI, etc.).
+
+When you add any other file under `app/` that needs to ship — config
+under `settings/`, models, blob assets, anything outside `html/` —
+add a `-a path/to/file` argument to the `acap-build` invocation in
+`app/Dockerfile`:
+
+```Dockerfile
+RUN . /opt/axis/acapsdk/environment-setup-* \
+    && acap-build . -a settings/events.json -a path/to/new/file
+```
+
+Always verify the bundle contents after a change:
+
+```sh
+tar tzf dist/camera-schedule-armv7hf.eap | sort
+```
+
+This trap cost us the M2 lab gate — `settings/events.json` was in the
+build context but not in the `.eap`, so zero AXEvent topics declared
+and the camera's Action Rules picker stayed empty. Fixed in commit
+`42e671b`.
+
 ### CI artifacts
 
 Every push and PR runs the full matrix (`build × {armv7hf, aarch64}` +

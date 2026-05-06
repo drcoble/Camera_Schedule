@@ -168,9 +168,10 @@ int solar_compute(double lat, double lon,
                   double zenith_deg,
                   solar_events_t* out) {
     if (!out) return -1;
-    out->sunrise    = SOLAR_NO_EVENT;
-    out->sunset     = SOLAR_NO_EVENT;
-    out->solar_noon = SOLAR_NO_EVENT;
+    out->sunrise        = SOLAR_NO_EVENT;
+    out->sunset         = SOLAR_NO_EVENT;
+    out->solar_noon     = SOLAR_NO_EVENT;
+    out->solar_midnight = SOLAR_NO_EVENT;
 
     if (lat < -90.0 || lat > 90.0)   return -1;
     if (lon < -180.0 || lon > 180.0) return -1;
@@ -190,6 +191,12 @@ int solar_compute(double lat, double lon,
 
     out->solar_noon = (time_t)(midnight_secs
                                + (int64_t)llround(noon_hours * 3600.0));
+
+    // Solar midnight is the anti-transit — sun crossing the lower
+    // meridian, 12 hours before/after solar noon. Convention here:
+    // pick the one in the early hours of the input civil date
+    // (i.e. noon − 12h). FR-3.3 — always defined, including polar.
+    out->solar_midnight = out->solar_noon - 43200;
 
     double zenith_rad = zenith_deg * DEG_TO_RAD;
     double lat_rad    = lat * DEG_TO_RAD;
