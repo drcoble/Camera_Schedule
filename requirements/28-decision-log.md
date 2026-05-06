@@ -604,3 +604,42 @@ clean and upgrade-safe. The override file lives in `localdata/` per
 [FR-12](./12-configuration-persistence.md),
 [DL-05](./28-decision-log.md) (Path A event topics),
 [DL-13](./28-decision-log.md) (admin-gated writes).
+
+---
+
+## DL-19 — Seasonal-event accuracy claim scoped to 1900–2050
+
+Date: 2026-05-06  |  Status: accepted
+
+**Decision.** [FR-5.1](./05-seasonal-events.md)'s implementation budgets
+±60 s for years **1900–2050** only. Beyond 2050 the closed-form Meeus
+ch. 27 routine in `app/src/astro/seasonal.c` falls back to the
+Espenak-Meeus long-term ΔT parabolic and is best-effort. The host
+test suite (`app/test/host/test_seasonal.c`) does not include 2100
+fixtures.
+
+**Rationale.** ΔT (TT − UT) is a *predicted* quantity past ~2025.
+Established prediction models — IERS Bulletin A long-term, NASA
+Eclipse pages (Espenak-Meeus 2007), and various ad-hoc IERS
+extrapolations — diverge by ~50–100 s at year 2100. USNO publishes
+seasons computed against a model that yields ΔT(2100) ≈ 100 s; the
+Espenak-Meeus 2050–2150 long-term parabolic returns ΔT(2100) ≈ 203 s.
+At ~100 s of disagreement the test would compare ΔT models, not the
+ch. 27 polynomial; hand-tuning ΔT to match USNO's curve would couple
+the test suite to USNO's prediction model, with zero astronomical
+value. The principled long-term Espenak-Meeus polynomial is retained
+in seasonal.c as a graceful fallback so callers asking for events
+past 2050 still get a single-second-rounded answer (best-effort, not
+guaranteed accurate).
+
+**Removed / changed.**
+- FR-5 implementation note clarifies the ±60 s budget covers the
+  1900–2050 well-predicted ΔT range; 2050+ is best-effort.
+- `seasonal.h` accuracy block updated to call out the 2050 horizon.
+- `seasonal.c` `delta_t_seconds` 2050–2150 branch documented as a
+  best-effort prediction with tens-of-seconds uncertainty.
+
+**References.** [FR-5.1](./05-seasonal-events.md),
+[FR-3.7](./03-solar-events.md) (sibling ±60 s budget),
+[seasonal.c](../app/src/astro/seasonal.c),
+[test_seasonal.c](../app/test/host/test_seasonal.c).
