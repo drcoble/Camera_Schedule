@@ -21,6 +21,7 @@ OBJS  = src/main.c \
         src/anchors.c \
         src/calendar.c \
         src/persistence.c \
+        src/status.c \
         src/astro/solar.c \
         src/astro/lunar.c \
         src/astro/seasonal.c \
@@ -66,7 +67,7 @@ DIST_DIR        := $(REPO_ROOT)/dist
 SDK_VERSION     ?= 12.6.0
 UBUNTU_VERSION  ?= 24.04
 
-.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license test test-lunar test-seasonal test-anchors test-calendar test-clean
+.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license test test-lunar test-seasonal test-anchors test-calendar test-export-import test-clean
 
 # ---------------------------------------------------------------------
 # Host-side tests (no docker, no SDK)
@@ -81,16 +82,18 @@ TEST_LUNAR_BIN     := $(TEST_HOST_DIR)/build/test_lunar
 TEST_SEASONAL_BIN  := $(TEST_HOST_DIR)/build/test_seasonal
 TEST_ANCHORS_BIN   := $(TEST_HOST_DIR)/build/test_anchors
 TEST_CALENDAR_BIN  := $(TEST_HOST_DIR)/build/test_calendar
+TEST_EXPORT_BIN    := $(TEST_HOST_DIR)/build/test_export_import
 # C11 for test_lunar.c (uses compound-literal reset idiom); solar only
 # needs C99. Use c11 for the whole set to keep a single CFLAGS line.
 TEST_CFLAGS        := -std=c11 -Wall -Wextra -Wpedantic -O2 -I$(APP_DIR)/src
 
-test: $(TEST_HOST_BIN) $(TEST_LUNAR_BIN) $(TEST_SEASONAL_BIN) $(TEST_ANCHORS_BIN) $(TEST_CALENDAR_BIN) ## Run host-side test fixtures (solar + lunar + seasonal + anchors + calendar)
+test: $(TEST_HOST_BIN) $(TEST_LUNAR_BIN) $(TEST_SEASONAL_BIN) $(TEST_ANCHORS_BIN) $(TEST_CALENDAR_BIN) $(TEST_EXPORT_BIN) ## Run host-side test fixtures (solar + lunar + seasonal + anchors + calendar + export/import)
 	@$(TEST_HOST_BIN)
 	@$(TEST_LUNAR_BIN)
 	@$(TEST_SEASONAL_BIN)
 	@$(TEST_ANCHORS_BIN)
 	@$(TEST_CALENDAR_BIN)
+	@$(TEST_EXPORT_BIN)
 
 test-lunar: $(TEST_LUNAR_BIN) ## Build and run the lunar test suite
 	@$(TEST_LUNAR_BIN)
@@ -103,6 +106,9 @@ test-anchors: $(TEST_ANCHORS_BIN) ## Build and run the anchors test suite
 
 test-calendar: $(TEST_CALENDAR_BIN) ## Build and run the calendar test suite
 	@$(TEST_CALENDAR_BIN)
+
+test-export-import: $(TEST_EXPORT_BIN) ## Build and run the export/import round-trip suite (M7)
+	@$(TEST_EXPORT_BIN)
 
 $(TEST_HOST_BIN): $(APP_DIR)/src/astro/solar.c \
                   $(APP_DIR)/src/astro/solar.h \
@@ -155,6 +161,33 @@ $(TEST_CALENDAR_BIN): $(APP_DIR)/src/calendar.h \
 	$(CC) $(TEST_CFLAGS) \
 	  $(TEST_HOST_DIR)/test_calendar.c \
 	  -lm -o $(TEST_CALENDAR_BIN)
+
+# M7 export/import host fixture. STE-owned — the SSE provides this build
+# rule shell so the integrator wires the test into `make test` without
+# Makefile churn. The fixture should exercise:
+#   * envelope round-trip with the same JSON serializer the /export
+#     handler uses (refactor build_export_envelope into something
+#     callable from the host fixture, or duplicate the envelope-shape
+#     code at the test boundary — STE's call).
+#   * schema_mismatch, invalid_anchor, invalid_calendar,
+#     invalid_schedule_enabled rejection paths from /import.
+# Test source is `test/host/test_export_import.c`; missing-source
+# behavior is handled by the make pattern via $(wildcard) so a clean
+# `make test` succeeds even before STE lands the test.
+TEST_EXPORT_SRC := $(wildcard $(TEST_HOST_DIR)/test_export_import.c)
+$(TEST_EXPORT_BIN): $(APP_DIR)/src/anchors.h \
+                    $(APP_DIR)/src/calendar.h
+	@mkdir -p $(TEST_HOST_DIR)/build
+	@if [ -n "$(TEST_EXPORT_SRC)" ]; then \
+	  $(CC) $(TEST_CFLAGS) -I$(APP_DIR)/src/acap \
+	    $(APP_DIR)/src/acap/cJSON.c \
+	    $(TEST_EXPORT_SRC) \
+	    -lm -o $(TEST_EXPORT_BIN) ; \
+	else \
+	  printf '#include <stdio.h>\nint main(void){puts("export/import test not yet provided by STE; skipping");return 0;}\n' \
+	    > $(TEST_HOST_DIR)/build/_skip.c ; \
+	  $(CC) -O0 $(TEST_HOST_DIR)/build/_skip.c -o $(TEST_EXPORT_BIN) ; \
+	fi
 
 test-clean: ## Remove host test build outputs
 	rm -rf $(TEST_HOST_DIR)/build

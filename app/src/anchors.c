@@ -36,18 +36,14 @@
 #include "astro/seasonal.h"
 #include "acap/ACAP.h"
 #include "acap/cJSON.h"
+#include "log.h"
 
 #include <ctype.h>
 #include <glib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <time.h>
-
-#define LOG(fmt, args...)      do { syslog(LOG_INFO,    fmt, ## args); } while (0)
-#define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
-#define LOG_ERROR(fmt, args...)  do { syslog(LOG_ERR,     fmt, ## args); } while (0)
 
 // ---------------------------------------------------------------------
 // 1. State

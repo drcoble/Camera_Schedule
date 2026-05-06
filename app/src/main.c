@@ -22,20 +22,28 @@
 #include <string.h>
 #include <syslog.h>
 #include <signal.h>
+#include <unistd.h>
+#include <errno.h>
+#include <time.h>
+#include <ctype.h>
 #include <glib.h>
 #include <glib-unix.h>
+#include <axsdk/axparameter.h>
 
 #include "acap/ACAP.h"
 #include "acap/cJSON.h"
 #include "anchors.h"
 #include "calendar.h"
+#include "log.h"
+#include "persistence.h"
+#include "status.h"
 #include "timers.h"
 #include "astro/solar.h"
 #include "astro/lunar.h"
 #include "astro/seasonal.h"
 
 #define APP_PACKAGE "camera_schedule"
-#define APP_VERSION "0.6.0"
+#define APP_VERSION "0.7.0"
 
 #if defined(__aarch64__)
 #define APP_ARCH "aarch64"
@@ -45,8 +53,22 @@
 #define APP_ARCH "unknown"
 #endif
 
-#define LOG(fmt, args...)      do { syslog(LOG_INFO,    fmt, ## args); } while (0)
-#define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
+// Storage for the runtime LOG_DBG gate (FR-13.4). The header-only
+// macros in log.h read this flag through the LOG_DBG conditional;
+// AXParameter callback + POST /debug flip it.
+int g_debug_logging_enabled = 0;
+
+// AXParameter handle. Owned by main(); freed in cleanup. Created lazily
+// after ACAP() so the package's parameter namespace exists before the
+// first add_or_get call.
+static AXParameter* g_axparam = NULL;
+
+// AXParameter scalar settings (FR-12.2). Cached in-memory; the canonical
+// store is the AXParameter system, mirrored here so /status and /debug
+// can return them without an extra round-trip through param.cgi.
+static int  g_param_lookahead_days       = 7;
+static char g_param_event_name_prefix[33] = "";
+static int  g_param_poll_interval_seconds = 60;
 
 static GMainLoop* main_loop = NULL;
 
@@ -137,7 +159,7 @@ static void HTTP_Endpoint_Location(const ACAP_HTTP_Response response,
 
         LOG("Geolocation updated to lat=%f lon=%f; recomputing events", lat, lon);
         apply_seasonal_labels(lat);
-        timers_recompute_now();
+        timers_recompute_now(RECOMPUTE_TRIGGER_LOCATION_CHANGE);
 
         cJSON* body = current_location_json();
         ACAP_HTTP_Respond_JSON(response, body);
@@ -756,7 +778,7 @@ static void HTTP_Endpoint_Events(const ACAP_HTTP_Response response,
 
     // Trigger a recompute so the suppressed/un-suppressed state takes
     // effect on currently-armed timers (FR-11.7 / DL-18).
-    timers_recompute_now();
+    timers_recompute_now(RECOMPUTE_TRIGGER_CONFIG_CHANGE);
 
     cJSON* body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "id", id_buf);
@@ -987,7 +1009,9 @@ static void HTTP_Endpoint_Events_Today(const ACAP_HTTP_Response response,
         respond_json_error(response, 405, "method_not_allowed", "use GET");
         return;
     }
-    int lookahead_days = 1;
+    // Default to AXParameter LookaheadDays (FR-12.2); ?lookahead_days=N
+    // overrides per-request.
+    int lookahead_days = g_param_lookahead_days;
     const char* la = ACAP_HTTP_Request_Param(request, "lookahead_days");
     if (la) {
         int v = atoi(la);
@@ -1021,6 +1045,817 @@ static void HTTP_Endpoint_Events_Today(const ACAP_HTTP_Response response,
 
     ACAP_HTTP_Respond_JSON(response, root);
     cJSON_Delete(root);
+}
+
+// ---- M7: status / recompute / export / import / debug -------------
+
+// Add a recompute_summary_t to a parent JSON object as `key` (or to
+// `parent` directly when key is NULL).
+static cJSON* summary_to_json(const recompute_summary_t* s) {
+    char buf[40];
+    cJSON* o = cJSON_CreateObject();
+    format_iso_utc(s->started_at_utc, buf, sizeof buf);
+    cJSON_AddStringToObject(o, "started_at", buf);
+    cJSON_AddStringToObject(o, "trigger", status_trigger_str(s->trigger));
+    cJSON_AddNumberToObject(o, "elapsed_ms",        s->elapsed_ms);
+    cJSON_AddNumberToObject(o, "anchors_evaluated", s->anchors_evaluated);
+    cJSON_AddNumberToObject(o, "events_armed",      s->events_armed);
+    cJSON_AddNumberToObject(o, "skipped_polar",     s->skipped_polar);
+    cJSON_AddNumberToObject(o, "skipped_disabled",  s->skipped_disabled);
+    cJSON_AddNumberToObject(o, "skipped_past",      s->skipped_past);
+    cJSON_AddNumberToObject(o, "errors",            s->errors);
+    return o;
+}
+
+// Best-effort timezone read. Returns the IANA name from /etc/timezone
+// (the camera's standard location) or "" if unreadable. The offset is
+// derived from struct tm::tm_gmtoff for `now`.
+static void describe_tz(time_t now, char* tz_name, size_t tz_len, int* offset_seconds) {
+    if (tz_name && tz_len) tz_name[0] = '\0';
+    if (offset_seconds) *offset_seconds = 0;
+    FILE* f = fopen("/etc/timezone", "r");
+    if (f) {
+        if (fgets(tz_name, (int)tz_len, f)) {
+            // strip trailing newline
+            size_t n = strlen(tz_name);
+            while (n > 0 && (tz_name[n-1] == '\n' || tz_name[n-1] == '\r')) {
+                tz_name[--n] = '\0';
+            }
+        }
+        fclose(f);
+    }
+    struct tm tm;
+    localtime_r(&now, &tm);
+    if (offset_seconds) *offset_seconds = (int)tm.tm_gmtoff;
+}
+
+// Build the AXParameter scalar mirror as JSON (used by /status and /debug).
+static cJSON* build_axparams_json(void) {
+    cJSON* o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "lookahead_days",       g_param_lookahead_days);
+    cJSON_AddStringToObject(o, "event_name_prefix",    g_param_event_name_prefix);
+    cJSON_AddNumberToObject(o, "poll_interval_seconds", g_param_poll_interval_seconds);
+    return o;
+}
+
+static void HTTP_Endpoint_Status(const ACAP_HTTP_Response response,
+                                 const ACAP_HTTP_Request  request) {
+    const char* method = ACAP_HTTP_Get_Method(request);
+    if (!method || strcmp(method, "GET") != 0) {
+        respond_json_error(response, 405, "method_not_allowed", "use GET");
+        return;
+    }
+
+    time_t now = time(NULL);
+    char utc_buf[40], local_buf[40];
+    format_iso_utc(now, utc_buf, sizeof utc_buf);
+    format_iso_local(now, local_buf, sizeof local_buf);
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "version", APP_VERSION);
+    cJSON_AddStringToObject(root, "now",       utc_buf);
+    cJSON_AddStringToObject(root, "now_local", local_buf);
+
+    // Location block.
+    cJSON* loc = cJSON_AddObjectToObject(root, "location");
+    double lat = ACAP_DEVICE_Latitude();
+    double lon = ACAP_DEVICE_Longitude();
+    int loc_valid = (lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0);
+    cJSON_AddNumberToObject(loc, "lat", lat);
+    cJSON_AddNumberToObject(loc, "lon", lon);
+    cJSON_AddBoolToObject(loc, "valid", loc_valid);
+    char tz_name[64];
+    int tz_off = 0;
+    describe_tz(now, tz_name, sizeof tz_name, &tz_off);
+    cJSON_AddStringToObject(loc, "tz", tz_name);
+    cJSON_AddNumberToObject(loc, "tz_offset_seconds", tz_off);
+
+    // Counts. topics_declared == anchors + calendar entries (each one
+    // owns a topic via ACAP_EVENTS_Add_Event); topics_enabled walks the
+    // FR-11.7 gate.
+    int topics_declared = 0, topics_enabled = 0, anchors_user = 0;
+    size_t na = anchors_count();
+    for (size_t i = 0; i < na; i++) {
+        anchor_t a;
+        if (anchors_get_by_index(i, &a) != 0) continue;
+        topics_declared++;
+        if (anchors_is_enabled(a.id)) topics_enabled++;
+        if (!a.built_in) anchors_user++;
+    }
+    int calendar_entries = (int)calendar_count();
+    for (int i = 0; i < calendar_entries; i++) {
+        calendar_entry_t e;
+        if (calendar_get_by_index((size_t)i, &e) != 0) continue;
+        topics_declared++;
+        if (anchors_is_enabled(e.id)) topics_enabled++;
+    }
+    cJSON* counts = cJSON_AddObjectToObject(root, "counts");
+    cJSON_AddNumberToObject(counts, "topics_declared",  topics_declared);
+    cJSON_AddNumberToObject(counts, "topics_enabled",   topics_enabled);
+    cJSON_AddNumberToObject(counts, "anchors_user",     anchors_user);
+    cJSON_AddNumberToObject(counts, "calendar_entries", calendar_entries);
+
+    // last_recompute.
+    const recompute_summary_t* last = status_last();
+    if (last) {
+        cJSON* o = summary_to_json(last);
+        cJSON_AddItemToObject(root, "last_recompute", o);
+    } else {
+        cJSON_AddNullToObject(root, "last_recompute");
+    }
+
+    // next_recompute.
+    time_t next_utc = 0;
+    recompute_trigger_t next_reason = RECOMPUTE_TRIGGER_MIDNIGHT;
+    status_get_next(&next_utc, &next_reason);
+    cJSON* nxt = cJSON_AddObjectToObject(root, "next_recompute");
+    if (next_utc > 0) {
+        char nb[40];
+        format_iso_utc(next_utc, nb, sizeof nb);
+        cJSON_AddStringToObject(nxt, "scheduled_at", nb);
+    } else {
+        cJSON_AddNullToObject(nxt, "scheduled_at");
+    }
+    cJSON_AddStringToObject(nxt, "reason", status_trigger_str(next_reason));
+
+    // recent[]. status_recent() returns a snapshot; iterate and serialize.
+    int recent_count = 0;
+    const recompute_summary_t* recent = status_recent(&recent_count);
+    cJSON* arr = cJSON_AddArrayToObject(root, "recent");
+    for (int i = 0; i < recent_count; i++) {
+        cJSON_AddItemToArray(arr, summary_to_json(&recent[i]));
+    }
+
+    cJSON_AddBoolToObject(root, "debug_logging", g_debug_logging_enabled);
+    cJSON_AddItemToObject(root, "axparameters", build_axparams_json());
+
+    ACAP_HTTP_Respond_JSON(response, root);
+    cJSON_Delete(root);
+}
+
+// Manual-recompute endpoint (FR-10.2). Always uses RECOMPUTE_TRIGGER_MANUAL.
+// Returns 202 + {"queued":true} when coalesced; otherwise the new
+// last_recompute summary at HTTP 200.
+static void HTTP_Endpoint_Recompute(const ACAP_HTTP_Response response,
+                                    const ACAP_HTTP_Request  request) {
+    const char* method = ACAP_HTTP_Get_Method(request);
+    if (!method || strcmp(method, "POST") != 0) {
+        respond_json_error(response, 405, "method_not_allowed", "use POST");
+        return;
+    }
+    int rc = timers_recompute_now(RECOMPUTE_TRIGGER_MANUAL);
+    if (rc == TIMERS_RECOMPUTE_QUEUED) {
+        cJSON* o = cJSON_CreateObject();
+        cJSON_AddBoolToObject(o, "queued", 1);
+        char* body = cJSON_PrintUnformatted(o);
+        if (body) {
+            ACAP_HTTP_Respond_String(response,
+                "Status: 202 Accepted\r\n"
+                "Content-Type: application/json\r\n"
+                "\r\n"
+                "%s", body);
+            free(body);
+        }
+        cJSON_Delete(o);
+        return;
+    }
+    if (rc == TIMERS_RECOMPUTE_ERROR) {
+        respond_json_error(response, 500, "recompute_failed",
+                           "internal error during recompute");
+        return;
+    }
+    const recompute_summary_t* last = status_last();
+    if (!last) {
+        respond_json_error(response, 500, "no_status",
+                           "recompute completed but no summary recorded");
+        return;
+    }
+    cJSON* o = summary_to_json(last);
+    ACAP_HTTP_Respond_JSON(response, o);
+    cJSON_Delete(o);
+}
+
+// Build the export envelope payload (also used by /export to serialize
+// to a temp string for Content-Length / streaming). Caller frees.
+static cJSON* build_export_envelope(void) {
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "schema",  "camera-schedule.config.v1");
+    cJSON_AddStringToObject(root, "version", APP_VERSION);
+    char ts[40];
+    format_iso_utc(time(NULL), ts, sizeof ts);
+    cJSON_AddStringToObject(root, "exported_at", ts);
+
+    cJSON_AddItemToObject(root, "axparameters", build_axparams_json());
+
+    // anchors[]: operator-defined only. Built-ins are derived from
+    // settings/events.json on every boot and MUST NOT be exported.
+    cJSON* anchors_arr = cJSON_AddArrayToObject(root, "anchors");
+    size_t na = anchors_count();
+    for (size_t i = 0; i < na; i++) {
+        anchor_t a;
+        if (anchors_get_by_index(i, &a) != 0) continue;
+        if (a.built_in) continue;
+        cJSON* o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "id",   a.id);
+        cJSON_AddStringToObject(o, "name", a.name);
+        const char* kind_s =
+            (a.kind == ANCHOR_KIND_OFFSET)    ? "offset" :
+            (a.kind == ANCHOR_KIND_PAIRED)    ? "paired" :
+            (a.kind == ANCHOR_KIND_THRESHOLD) ? "threshold" : "offset";
+        cJSON_AddStringToObject(o, "kind", kind_s);
+        switch (a.kind) {
+            case ANCHOR_KIND_OFFSET:
+                cJSON_AddStringToObject(o, "event_source",     a.event_source);
+                cJSON_AddNumberToObject(o, "offset_minutes",   a.offset_minutes);
+                cJSON_AddNumberToObject(o, "duration_minutes", a.duration_minutes);
+                break;
+            case ANCHOR_KIND_PAIRED:
+                cJSON_AddStringToObject(o, "start_event",          a.start_event);
+                cJSON_AddNumberToObject(o, "start_offset_minutes", a.start_offset_minutes);
+                cJSON_AddStringToObject(o, "end_event",            a.end_event);
+                cJSON_AddNumberToObject(o, "end_offset_minutes",   a.end_offset_minutes);
+                break;
+            case ANCHOR_KIND_THRESHOLD: {
+                cJSON_AddStringToObject(o, "metric", "moon_illumination");
+                const char* op_s =
+                    (a.op == ANCHOR_OP_GE) ? "ge" :
+                    (a.op == ANCHOR_OP_LE) ? "le" :
+                    (a.op == ANCHOR_OP_GT) ? "gt" : "lt";
+                cJSON_AddStringToObject(o, "op", op_s);
+                cJSON_AddNumberToObject(o, "value", a.value);
+                break;
+            }
+        }
+        cJSON_AddItemToArray(anchors_arr, o);
+    }
+
+    // calendar[]: full set.
+    cJSON* cal_arr = cJSON_AddArrayToObject(root, "calendar");
+    size_t nc = calendar_count();
+    for (size_t i = 0; i < nc; i++) {
+        calendar_entry_t e;
+        if (calendar_get_by_index(i, &e) != 0) continue;
+        cJSON* o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "id",   e.id);
+        cJSON_AddStringToObject(o, "name", e.name);
+        const char* kind_s =
+            (e.kind == CALENDAR_KIND_SINGLE_DATE) ? "single_date" :
+            (e.kind == CALENDAR_KIND_DATE_RANGE)  ? "date_range"  : "annual";
+        cJSON_AddStringToObject(o, "kind", kind_s);
+        cJSON_AddStringToObject(o, "time_mode",
+            e.time_mode == CALENDAR_TIME_ALL_DAY ? "all_day" : "specific");
+        if (e.time_mode == CALENDAR_TIME_SPECIFIC) {
+            char buf[16];
+            int s = e.time_of_day_seconds;
+            snprintf(buf, sizeof buf, "%02d:%02d:%02d",
+                     s / 3600, (s % 3600) / 60, s % 60);
+            cJSON_AddStringToObject(o, "time_of_day", buf);
+        }
+        char date_buf[16];
+        if (e.kind == CALENDAR_KIND_ANNUAL) {
+            snprintf(date_buf, sizeof date_buf, "2000-%02d-%02d",
+                     e.start_date.month, e.start_date.day);
+        } else {
+            snprintf(date_buf, sizeof date_buf, "%04d-%02d-%02d",
+                     e.start_date.year, e.start_date.month, e.start_date.day);
+        }
+        cJSON_AddStringToObject(o, "start_date", date_buf);
+        if (e.kind == CALENDAR_KIND_DATE_RANGE) {
+            snprintf(date_buf, sizeof date_buf, "%04d-%02d-%02d",
+                     e.end_date.year, e.end_date.month, e.end_date.day);
+            cJSON_AddStringToObject(o, "end_date", date_buf);
+        }
+        cJSON_AddStringToObject(o, "notes", e.notes);
+        cJSON_AddItemToArray(cal_arr, o);
+    }
+
+    // schedule_enabled: walk every known id and emit only the
+    // explicitly-disabled ones (default-on per FR-11.7). The export
+    // round-trip retains correctness: missing-from-import keys re-default
+    // to enabled on the importing camera.
+    cJSON* en = cJSON_AddObjectToObject(root, "schedule_enabled");
+    for (size_t i = 0; i < na; i++) {
+        anchor_t a;
+        if (anchors_get_by_index(i, &a) != 0) continue;
+        if (!anchors_is_enabled(a.id))
+            cJSON_AddBoolToObject(en, a.id, 0);
+    }
+    for (size_t i = 0; i < nc; i++) {
+        calendar_entry_t e;
+        if (calendar_get_by_index(i, &e) != 0) continue;
+        if (!anchors_is_enabled(e.id))
+            cJSON_AddBoolToObject(en, e.id, 0);
+    }
+
+    cJSON_AddBoolToObject(root, "debug_logging", g_debug_logging_enabled);
+    return root;
+}
+
+static void HTTP_Endpoint_Export(const ACAP_HTTP_Response response,
+                                 const ACAP_HTTP_Request  request) {
+    const char* method = ACAP_HTTP_Get_Method(request);
+    if (!method || strcmp(method, "GET") != 0) {
+        respond_json_error(response, 405, "method_not_allowed", "use GET");
+        return;
+    }
+    cJSON* env = build_export_envelope();
+    char* body = cJSON_Print(env);
+    cJSON_Delete(env);
+    if (!body) {
+        respond_json_error(response, 500, "serialize_failed",
+                           "could not serialize export envelope");
+        return;
+    }
+
+    // Best-effort filename: camera_schedule_<host>_<YYYYMMDD>.json
+    char host[64] = {0};
+    if (gethostname(host, sizeof host - 1) != 0 || host[0] == '\0') {
+        snprintf(host, sizeof host, "host");
+    }
+    char datebuf[16];
+    time_t now = time(NULL);
+    struct tm tm;
+    gmtime_r(&now, &tm);
+    strftime(datebuf, sizeof datebuf, "%Y%m%d", &tm);
+    char filename[160];
+    snprintf(filename, sizeof filename,
+             "camera_schedule_%s_%s.json", host, datebuf);
+
+    // Custom header set: Content-Type + Content-Disposition. Use
+    // Respond_String for the header (small) and Respond_Data for the
+    // body to dodge the 4096-byte cap.
+    ACAP_HTTP_Respond_String(response,
+        "Content-Type: application/json; charset=utf-8\r\n"
+        "Content-Disposition: attachment; filename=\"%s\"\r\n"
+        "Cache-Control: no-cache\r\n"
+        "\r\n", filename);
+    size_t blen = strlen(body);
+    ACAP_HTTP_Respond_Data(response, blen, body);
+    free(body);
+}
+
+// Validate that a string matches ^[a-z0-9_]{1,32}$ — same regex anchors
+// + calendar enforce. Used by the schedule_enabled validator.
+static int is_valid_id_str(const char* s) {
+    if (!s) return 0;
+    size_t n = strlen(s);
+    if (n < 1 || n > 32) return 0;
+    for (size_t i = 0; i < n; i++) {
+        char c = s[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'))
+            return 0;
+    }
+    return 1;
+}
+
+// The anchor_from_wire / calendar_from_wire helpers are defined as
+// static earlier in this translation unit (lines 303 and 550 in this
+// file). They handle the same wire shape that /anchors and /calendar
+// accept, so the import path can reuse them directly.
+static void HTTP_Endpoint_Import(const ACAP_HTTP_Response response,
+                                 const ACAP_HTTP_Request  request) {
+    const char* method = ACAP_HTTP_Get_Method(request);
+    if (!method || strcmp(method, "POST") != 0) {
+        respond_json_error(response, 405, "method_not_allowed", "use POST");
+        return;
+    }
+    if (!request->postData) {
+        respond_json_error(response, 400, "malformed_json", "missing body");
+        return;
+    }
+    cJSON* in = cJSON_Parse(request->postData);
+    if (!in) {
+        respond_json_error(response, 400, "malformed_json",
+                           "request body is not valid JSON");
+        return;
+    }
+
+    // Step 1: schema field.
+    cJSON* schema_v = cJSON_GetObjectItem(in, "schema");
+    if (!cJSON_IsString(schema_v) ||
+        strcmp(schema_v->valuestring, "camera-schedule.config.v1") != 0) {
+        cJSON_Delete(in);
+        respond_json_error(response, 400, "schema_mismatch",
+                           "expected camera-schedule.config.v1");
+        return;
+    }
+
+    // Step 2: parse anchors[] into an in-memory batch and validate.
+    cJSON* anchors_arr = cJSON_GetObjectItem(in, "anchors");
+    int n_anchors = (anchors_arr && cJSON_IsArray(anchors_arr))
+                        ? cJSON_GetArraySize(anchors_arr) : 0;
+    if (n_anchors > (int)ANCHORS_OPERATOR_MAX) {
+        cJSON_Delete(in);
+        respond_json_error(response, 400, "operator_cap",
+                           "anchors count exceeds 64");
+        return;
+    }
+    anchor_t anchor_batch[ANCHORS_OPERATOR_MAX];
+    for (int i = 0; i < n_anchors; i++) {
+        cJSON* el = cJSON_GetArrayItem(anchors_arr, i);
+        if (anchor_from_wire(el, &anchor_batch[i]) != 0) {
+            cJSON_Delete(in);
+            char msg[80];
+            snprintf(msg, sizeof msg, "anchor %d malformed", i);
+            respond_json_error(response, 400, "invalid_anchor", msg);
+            return;
+        }
+    }
+
+    // Step 3: parse calendar[].
+    cJSON* cal_arr = cJSON_GetObjectItem(in, "calendar");
+    int n_cal = (cal_arr && cJSON_IsArray(cal_arr))
+                    ? cJSON_GetArraySize(cal_arr) : 0;
+    if (n_cal > (int)CALENDAR_OPERATOR_MAX) {
+        cJSON_Delete(in);
+        respond_json_error(response, 400, "operator_cap",
+                           "calendar count exceeds 64");
+        return;
+    }
+    calendar_entry_t cal_batch[CALENDAR_OPERATOR_MAX];
+    for (int i = 0; i < n_cal; i++) {
+        cJSON* el = cJSON_GetArrayItem(cal_arr, i);
+        if (calendar_from_wire(el, &cal_batch[i]) != 0) {
+            cJSON_Delete(in);
+            char msg[80];
+            snprintf(msg, sizeof msg, "calendar entry %d malformed", i);
+            respond_json_error(response, 400, "invalid_calendar", msg);
+            return;
+        }
+    }
+
+    // Step 4: validate schedule_enabled keys + values.
+    cJSON* en_obj = cJSON_GetObjectItem(in, "schedule_enabled");
+    int n_en = 0;
+    if (en_obj) {
+        if (!cJSON_IsObject(en_obj)) {
+            cJSON_Delete(in);
+            respond_json_error(response, 400, "invalid_schedule_enabled",
+                               "schedule_enabled must be an object");
+            return;
+        }
+        cJSON* child = en_obj->child;
+        while (child) {
+            if (!is_valid_id_str(child->string) || !cJSON_IsBool(child)) {
+                cJSON_Delete(in);
+                char msg[96];
+                snprintf(msg, sizeof msg,
+                         "schedule_enabled key '%s' invalid",
+                         child->string ? child->string : "(null)");
+                respond_json_error(response, 400, "invalid_schedule_enabled", msg);
+                return;
+            }
+            n_en++;
+            child = child->next;
+        }
+    }
+
+    cJSON* dbg_v = cJSON_GetObjectItem(in, "debug_logging");
+    int new_debug = g_debug_logging_enabled;
+    if (dbg_v) {
+        if (!cJSON_IsBool(dbg_v)) {
+            cJSON_Delete(in);
+            respond_json_error(response, 400, "invalid_debug_logging",
+                               "debug_logging must be a boolean");
+            return;
+        }
+        new_debug = cJSON_IsTrue(dbg_v) ? 1 : 0;
+    }
+
+    // Pre-import safety: best-effort copy-aside of the three live config
+    // files. The atomic-write path inside anchors_replace_all /
+    // calendar_replace_all rolls back on individual failure; the
+    // copy-aside lets a human recover from a successful-but-semantically-
+    // wrong import. Failures here are non-fatal — log + continue.
+    long long ts = (long long)time(NULL);
+    const char* sandbox = ACAP_FILE_AppPath();
+    if (sandbox) {
+        char src[256], dst[300];
+        const char* targets[] = {
+            "localdata/anchors.json",
+            "localdata/calendar.json",
+            "localdata/schedule_enabled.json",
+            NULL
+        };
+        for (int i = 0; targets[i]; i++) {
+            snprintf(src, sizeof src, "%s%s", sandbox, targets[i]);
+            snprintf(dst, sizeof dst, "%s%s.before-import-%lld",
+                     sandbox, targets[i], ts);
+            if (rename(src, dst) == 0) {
+                LOG("import: archived %s -> %s.before-import-%lld",
+                    targets[i], targets[i], ts);
+            } else if (errno != ENOENT) {
+                LOG_WARN("import: copy-aside of %s failed: %s",
+                         targets[i], strerror(errno));
+            }
+        }
+    }
+
+    // Step 5: apply. All-or-nothing: anchors_replace_all is atomic
+    // internally (validator then rename). Same for calendar_replace_all.
+    int rc = anchors_replace_all(anchor_batch, (size_t)n_anchors);
+    if (rc != ANCHORS_OK) {
+        cJSON_Delete(in);
+        const char* tag; const char* msg;
+        int code = map_anchors_err(rc, &tag, &msg);
+        respond_json_error(response, code, tag, msg);
+        return;
+    }
+    rc = calendar_replace_all(cal_batch, (size_t)n_cal);
+    if (rc != CALENDAR_OK) {
+        cJSON_Delete(in);
+        const char* tag; const char* msg;
+        int code = map_anchors_err(rc, &tag, &msg);
+        respond_json_error(response, code, tag, msg);
+        return;
+    }
+    if (en_obj) {
+        cJSON* child = en_obj->child;
+        while (child) {
+            int en = cJSON_IsTrue(child) ? 1 : 0;
+            (void)anchors_set_enabled(child->string, en);
+            child = child->next;
+        }
+    }
+
+    // Apply debug_logging from the envelope.
+    if (new_debug != g_debug_logging_enabled) {
+        g_debug_logging_enabled = new_debug;
+        if (g_axparam) {
+            GError* err = NULL;
+            ax_parameter_set(g_axparam, "DebugLogging",
+                             new_debug ? "yes" : "no", TRUE, &err);
+            if (err) {
+                LOG_WARN("import: ax_parameter_set DebugLogging failed: %s",
+                         err->message);
+                g_error_free(err);
+            }
+        }
+    }
+
+    cJSON_Delete(in);
+
+    // Step 6: trigger an explicit recompute with import trigger so the
+    // ring reflects the cause. anchors_replace_all already triggered a
+    // CONFIG_CHANGE recompute; we do one more for the IMPORT label.
+    timers_recompute_now(RECOMPUTE_TRIGGER_IMPORT);
+
+    // Build success response.
+    cJSON* resp = cJSON_CreateObject();
+    cJSON* imp = cJSON_AddObjectToObject(resp, "imported");
+    cJSON_AddNumberToObject(imp, "anchors",                n_anchors);
+    cJSON_AddNumberToObject(imp, "calendar",               n_cal);
+    cJSON_AddNumberToObject(imp, "schedule_enabled_keys",  n_en);
+    const recompute_summary_t* last = status_last();
+    if (last) {
+        cJSON_AddItemToObject(resp, "recompute", summary_to_json(last));
+    } else {
+        cJSON_AddNullToObject(resp, "recompute");
+    }
+    ACAP_HTTP_Respond_JSON(response, resp);
+    cJSON_Delete(resp);
+}
+
+// Helper: persist a debug_logging change through AXParameter and the
+// in-memory flag. Returns 0 on success.
+static int set_debug_logging_persistent(int enabled) {
+    g_debug_logging_enabled = enabled ? 1 : 0;
+    if (!g_axparam) {
+        LOG_WARN("set_debug_logging: AXParameter not initialized");
+        return -1;
+    }
+    GError* err = NULL;
+    if (!ax_parameter_set(g_axparam, "DebugLogging",
+                          enabled ? "yes" : "no", TRUE, &err)) {
+        LOG_WARN("ax_parameter_set DebugLogging failed: %s",
+                 err ? err->message : "(no message)");
+        if (err) g_error_free(err);
+        return -1;
+    }
+    return 0;
+}
+
+static void HTTP_Endpoint_Debug(const ACAP_HTTP_Response response,
+                                const ACAP_HTTP_Request  request) {
+    const char* method = ACAP_HTTP_Get_Method(request);
+    if (!method) {
+        respond_json_error(response, 400, "bad_request", "missing method");
+        return;
+    }
+
+    if (strcmp(method, "GET") == 0) {
+        cJSON* o = cJSON_CreateObject();
+        cJSON_AddBoolToObject(o, "debug_logging", g_debug_logging_enabled);
+        cJSON_AddItemToObject(o, "axparameters", build_axparams_json());
+        ACAP_HTTP_Respond_JSON(response, o);
+        cJSON_Delete(o);
+        return;
+    }
+
+    if (strcmp(method, "POST") == 0) {
+        if (!request->postData) {
+            respond_json_error(response, 400, "bad_request", "missing body");
+            return;
+        }
+        cJSON* in = cJSON_Parse(request->postData);
+        if (!in) {
+            respond_json_error(response, 400, "bad_request",
+                               "body is not valid JSON");
+            return;
+        }
+        cJSON* v = cJSON_GetObjectItem(in, "debug_logging");
+        if (!cJSON_IsBool(v)) {
+            cJSON_Delete(in);
+            respond_json_error(response, 400, "bad_request",
+                               "body must include boolean 'debug_logging'");
+            return;
+        }
+        int en = cJSON_IsTrue(v) ? 1 : 0;
+        cJSON_Delete(in);
+        if (set_debug_logging_persistent(en) != 0) {
+            respond_json_error(response, 500, "param_set_failed",
+                               "could not persist DebugLogging");
+            return;
+        }
+        cJSON* o = cJSON_CreateObject();
+        cJSON_AddBoolToObject(o, "debug_logging", g_debug_logging_enabled);
+        cJSON_AddItemToObject(o, "axparameters", build_axparams_json());
+        ACAP_HTTP_Respond_JSON(response, o);
+        cJSON_Delete(o);
+        return;
+    }
+
+    respond_json_error(response, 405, "method_not_allowed", "use GET or POST");
+}
+
+// ---- AXParameter setup (FR-12.2) ----------------------------------
+
+// Read a parameter as int with bounds [min,max]; if missing or invalid,
+// keep the existing default. `out` is updated only on a clean read.
+static void axparam_load_int(AXParameter* p, const char* name,
+                             int min_v, int max_v, int* out) {
+    if (!p || !name || !out) return;
+    GError* err = NULL;
+    gchar* val = NULL;
+    if (!ax_parameter_get(p, name, &val, &err)) {
+        if (err) g_error_free(err);
+        return;
+    }
+    if (val) {
+        char* endptr = NULL;
+        long parsed = strtol(val, &endptr, 10);
+        if (endptr && *endptr == '\0' && parsed >= min_v && parsed <= max_v) {
+            *out = (int)parsed;
+        }
+        g_free(val);
+    }
+}
+
+static void axparam_load_string(AXParameter* p, const char* name,
+                                char* out, size_t out_len) {
+    if (!p || !name || !out || out_len == 0) return;
+    GError* err = NULL;
+    gchar* val = NULL;
+    if (!ax_parameter_get(p, name, &val, &err)) {
+        if (err) g_error_free(err);
+        return;
+    }
+    if (val) {
+        snprintf(out, out_len, "%s", val);
+        g_free(val);
+    }
+}
+
+static void axparam_load_bool_yesno(AXParameter* p, const char* name, int* out) {
+    if (!p || !name || !out) return;
+    GError* err = NULL;
+    gchar* val = NULL;
+    if (!ax_parameter_get(p, name, &val, &err)) {
+        if (err) g_error_free(err);
+        return;
+    }
+    if (val) {
+        // Accept yes/no plus true/false for forward-compat.
+        if (g_ascii_strcasecmp(val, "yes")  == 0 ||
+            g_ascii_strcasecmp(val, "true") == 0) {
+            *out = 1;
+        } else if (g_ascii_strcasecmp(val, "no")    == 0 ||
+                   g_ascii_strcasecmp(val, "false") == 0) {
+            *out = 0;
+        }
+        g_free(val);
+    }
+}
+
+// AXParameter callback: fires whenever any parameter under our package
+// namespace is changed via param.cgi or the Axis Web UI's parameter
+// editor. We can't filter by name without inspecting the `name`
+// argument; the callback signature delivers the full path.
+static void on_axparam_changed(const gchar* name, const gchar* value,
+                               gpointer user_data) {
+    (void)user_data;
+    if (!name) return;
+
+    // The framework delivers fully-qualified names like
+    // "root.camera_schedule.DebugLogging". Strip the prefix.
+    const char* leaf = strrchr(name, '.');
+    leaf = leaf ? leaf + 1 : name;
+
+    LOG("AXParameter changed: %s='%s'", leaf, value ? value : "(null)");
+
+    if (strcmp(leaf, "DebugLogging") == 0) {
+        if (value && (g_ascii_strcasecmp(value, "yes")  == 0 ||
+                      g_ascii_strcasecmp(value, "true") == 0))
+            g_debug_logging_enabled = 1;
+        else
+            g_debug_logging_enabled = 0;
+        return;
+    }
+    if (strcmp(leaf, "LookaheadDays") == 0 && value) {
+        long parsed = strtol(value, NULL, 10);
+        if (parsed >= 1 && parsed <= 30) g_param_lookahead_days = (int)parsed;
+        return;
+    }
+    if (strcmp(leaf, "PollIntervalSeconds") == 0 && value) {
+        long parsed = strtol(value, NULL, 10);
+        if (parsed >= 30 && parsed <= 600) g_param_poll_interval_seconds = (int)parsed;
+        return;
+    }
+    if (strcmp(leaf, "EventNamePrefix") == 0 && value) {
+        snprintf(g_param_event_name_prefix,
+                 sizeof g_param_event_name_prefix, "%s", value);
+        return;
+    }
+}
+
+// Idempotent "add or get" for one parameter. ax_parameter_add fails
+// when the parameter already exists; we tolerate that and proceed to
+// read the current value via axparam_load_*.
+static void axparam_ensure(AXParameter* p, const char* name,
+                           const char* initial_value, const char* type) {
+    if (!p || !name) return;
+    GError* err = NULL;
+    if (!ax_parameter_add(p, name, initial_value, type, &err)) {
+        // Common case after first boot: parameter already exists. The
+        // Axis SDK sets err->code == AX_PARAMETER_PARAM_ADDED_ERROR
+        // for that, but the symbol name varies across SDK versions —
+        // err->message reliably contains "already" on those builds.
+        if (err && err->message && strstr(err->message, "already") == NULL) {
+            LOG_WARN("ax_parameter_add(%s) failed: %s", name, err->message);
+        }
+        if (err) g_error_free(err);
+    }
+    GError* cb_err = NULL;
+    if (!ax_parameter_register_callback(p, name, on_axparam_changed,
+                                        NULL, &cb_err)) {
+        if (cb_err) {
+            LOG_WARN("ax_parameter_register_callback(%s) failed: %s",
+                     name, cb_err->message ? cb_err->message : "(no msg)");
+            g_error_free(cb_err);
+        }
+    }
+}
+
+static void axparams_init(void) {
+    GError* err = NULL;
+    g_axparam = ax_parameter_new(APP_PACKAGE, &err);
+    if (!g_axparam) {
+        LOG_WARN("ax_parameter_new failed: %s",
+                 err ? err->message : "(no message)");
+        if (err) g_error_free(err);
+        return;
+    }
+
+    // Declare the four scalars (idempotent across boots). Defaults must
+    // match contract §2.1.
+    axparam_ensure(g_axparam, "LookaheadDays",        "7",  "int:min=1,max=30");
+    axparam_ensure(g_axparam, "EventNamePrefix",      "",   "string:maxlen=32");
+    axparam_ensure(g_axparam, "PollIntervalSeconds",  "60", "int:min=30,max=600");
+    axparam_ensure(g_axparam, "DebugLogging",         "no", "bool:no,yes");
+
+    // Seed in-memory mirrors from current values (operator may have
+    // changed any of them via param.cgi between runs).
+    axparam_load_int(g_axparam,    "LookaheadDays",
+                     1, 30, &g_param_lookahead_days);
+    axparam_load_string(g_axparam, "EventNamePrefix",
+                        g_param_event_name_prefix,
+                        sizeof g_param_event_name_prefix);
+    axparam_load_int(g_axparam,    "PollIntervalSeconds",
+                     30, 600, &g_param_poll_interval_seconds);
+    axparam_load_bool_yesno(g_axparam, "DebugLogging", &g_debug_logging_enabled);
+
+    LOG("AXParameter init: LookaheadDays=%d EventNamePrefix='%s' "
+        "PollIntervalSeconds=%d DebugLogging=%s",
+        g_param_lookahead_days, g_param_event_name_prefix,
+        g_param_poll_interval_seconds,
+        g_debug_logging_enabled ? "yes" : "no");
+}
+
+static void axparams_cleanup(void) {
+    if (g_axparam) {
+        ax_parameter_free(g_axparam);
+        g_axparam = NULL;
+    }
 }
 
 // ---- Hemisphere-aware solstice labels (FR-5.2) --------------------
@@ -1084,12 +1919,23 @@ int main(void) {
     // the event topics with the AXEvent handler.
     ACAP(APP_PACKAGE, Settings_Updated_Callback);
 
+    // M7: status ring buffer (FR-13.3) and AXParameter scalars
+    // (FR-12.2). Both come up before timers_init() so the boot-time
+    // recompute records correctly and reads any operator-set lookahead.
+    status_init();
+    axparams_init();
+
     ACAP_HTTP_Node("about",         HTTP_Endpoint_About);
     ACAP_HTTP_Node("location",      HTTP_Endpoint_Location);
     ACAP_HTTP_Node("anchors",       HTTP_Endpoint_Anchors);
     ACAP_HTTP_Node("calendar",      HTTP_Endpoint_Calendar);
     ACAP_HTTP_Node("events",        HTTP_Endpoint_Events);
     ACAP_HTTP_Node("events_today",  HTTP_Endpoint_Events_Today);
+    ACAP_HTTP_Node("status",        HTTP_Endpoint_Status);
+    ACAP_HTTP_Node("recompute",     HTTP_Endpoint_Recompute);
+    ACAP_HTTP_Node("export",        HTTP_Endpoint_Export);
+    ACAP_HTTP_Node("import",        HTTP_Endpoint_Import);
+    ACAP_HTTP_Node("debug",         HTTP_Endpoint_Debug);
 
     // Re-label the two solstice topics now that lat is known. Must
     // happen after ACAP() (which declares the topics with their
@@ -1155,6 +2001,7 @@ int main(void) {
     timers_cleanup();
     calendar_cleanup();
     anchors_cleanup();
+    axparams_cleanup();
     ACAP_Cleanup();
     g_main_loop_unref(main_loop);
     closelog();

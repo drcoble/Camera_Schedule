@@ -15,6 +15,7 @@
 #define _GNU_SOURCE
 #include "calendar.h"
 #include "anchors.h"
+#include "log.h"
 #include "persistence.h"
 #include "timers.h"
 #include "acap/ACAP.h"
@@ -25,12 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <time.h>
-
-#define LOG(fmt, args...)      do { syslog(LOG_INFO,    fmt, ## args); } while (0)
-#define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
-#define LOG_ERROR(fmt, args...)  do { syslog(LOG_ERR,     fmt, ## args); } while (0)
 
 // Forward decl from anchors.c — used for the cross-namespace collision
 // check at create / replace_all time.

@@ -8,7 +8,7 @@
       "vendorUrl": "https://github.com/drcoble/Camera_Schedule",
       "embeddedSdkVersion": "3.0",
       "runMode": "respawn",
-      "version": "0.6.0"
+      "version": "0.7.0"
     },
     "configuration": {
       "settingPage": "schedule.html",
@@ -18,7 +18,12 @@
         { "access": "admin",  "name": "anchors",       "type": "fastCgi" },
         { "access": "admin",  "name": "calendar",      "type": "fastCgi" },
         { "access": "admin",  "name": "events",        "type": "fastCgi" },
-        { "access": "viewer", "name": "events_today",  "type": "fastCgi" }
+        { "access": "viewer", "name": "events_today",  "type": "fastCgi" },
+        { "access": "viewer", "name": "status",        "type": "fastCgi" },
+        { "access": "admin",  "name": "recompute",     "type": "fastCgi" },
+        { "access": "admin",  "name": "export",        "type": "fastCgi" },
+        { "access": "admin",  "name": "import",        "type": "fastCgi" },
+        { "access": "admin",  "name": "debug",         "type": "fastCgi" }
       ]
     }
   },
