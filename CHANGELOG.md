@@ -85,6 +85,9 @@ and runtime debug toggle.
 - Host fixture `test_export_import.c`: round-trip identity plus
   10 reject cases (12/12 pass).
 - 24-hour soak harness `app/test/lab/soak_24h.sh`.
+- Recompute coalescing for back-to-back triggers
+  ([FR-10.3](./requirements/10-recompute-cadence.md),
+  [FR-13.3](./requirements/13-logging.md)).
 
 ### Changed
 
@@ -97,7 +100,6 @@ and runtime debug toggle.
 
 - `ACAP_HTTP_Respond_JSON` truncated payloads larger than 4 KB
   to nothing.
-- Recompute coalescing logic for back-to-back triggers.
 
 ## [0.6.0] — 2026-05-06
 
