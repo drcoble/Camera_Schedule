@@ -843,3 +843,64 @@ PR-3 / PR-6, [20-non-functional.md](./20-non-functional.md) NFR-5,
 [25-licensing-and-distribution.md](./25-licensing-and-distribution.md)
 DR-12, [23-verification.md](./23-verification.md),
 [../IMPLEMENTATION.md](../IMPLEMENTATION.md) M8, DL-11.
+
+---
+
+## DL-24 — M8 docs polish: Keep-a-Changelog 1.1.0 + DCO mandatory
+
+Date: 2026-05-06  |  Status: accepted
+
+**Decision.** Two M8 documentation conventions are locked:
+
+1. **`CHANGELOG.md` follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)**
+   with semver section headings. Sections per release are limited to
+   **Added**, **Changed**, **Fixed**, **Removed** (the four most
+   commonly populated of the six Keep-a-Changelog defaults; the
+   "Deprecated" and "Security" sections are omitted from the
+   per-release scaffolding and may be added ad-hoc when populated).
+   Tag-named anchor links at the bottom of the file point at
+   `https://github.com/drcoble/Camera_Schedule/releases/tag/<tag>`.
+   Releases not actually tagged in the repo (e.g. v0.4.0 and v0.5.0,
+   whose work shipped inside v0.6.0 per
+   [CLAUDE.md](../CLAUDE.md) and the M4/M5 calendar-locked-tag
+   policy) do not get a CHANGELOG section.
+2. **DCO sign-off is mandatory, not recommended.** [DR-7](./25-licensing-and-distribution.md)
+   describes DCO sign-off as "recommended"; M8's `CONTRIBUTING.md`
+   tightens this to a hard policy — every contributor commit MUST
+   carry a `Signed-off-by:` trailer matching the author's
+   `git config user.name` and `user.email`. Enforcement is by
+   reviewer policy for v1.0.0-beta; promoting to a CI check is
+   tracked separately and is not a v1.0.0-beta gate.
+
+**Rationale.** Keep-a-Changelog is the de-facto standard for
+human-readable changelogs in MIT-licensed open-source projects;
+adopting v1.1.0 (the current spec at the time of M8) gives
+contributors a recognizable structure and avoids inventing a
+project-specific format. Restricting per-release sections to the
+four most-used categories keeps the file scannable — empty section
+headers signal nothing useful and add visual clutter.
+
+Tightening DCO from "recommended" to "mandatory" matches how every
+substantive open-source ACAP project the maintainer surveyed
+operates and removes ambiguity about whether unsigned PRs need to
+be re-submitted. The change is procedural, not legal — DCO has been
+the project's intended posture from DL-01, and no shipped commit
+history is retroactively affected (initial commits pre-date the
+policy).
+
+**Removed / changed.**
+
+- New file `CHANGELOG.md` at repo root, conformant to Keep-a-Changelog 1.1.0.
+- `CONTRIBUTING.md` § Developer Certificate of Origin (DCO) states
+  the policy as mandatory and shows the `git commit -s` invocation.
+- `DR-7`'s "recommended: `Signed-off-by:` per the Developer
+  Certificate of Origin v1.1" is interpreted by `CONTRIBUTING.md`
+  as a hard requirement; the requirements file itself is not
+  edited (DR-7 wording stands; the project's interpretation is
+  recorded here so future contributors who read DR-7 see the
+  pointer to DL-24).
+
+**References.** [DR-7 / DR-13](./25-licensing-and-distribution.md),
+[../CONTRIBUTING.md](../CONTRIBUTING.md),
+[../CHANGELOG.md](../CHANGELOG.md),
+[../IMPLEMENTATION.md](../IMPLEMENTATION.md) M8.
