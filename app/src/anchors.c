@@ -956,8 +956,10 @@ int anchors_create(const anchor_t* in) {
     }
 
     // Reconciliation: declare the new AXEvent topic.
+    // ACAP_EVENTS_Add_Event returns the declarationID (non-zero) on
+    // success, 0 on failure. The check below treats zero as failure.
     if (ACAP_EVENTS_Add_Event(slot->id, slot->name,
-                              anchor_is_stateful(slot)) != 0) {
+                              anchor_is_stateful(slot)) == 0) {
         // Roll back: revert the in-memory list and persistence.
         g_count = prev_count;
         (void)persist_operator_slice_locked();
@@ -1013,7 +1015,7 @@ int anchors_update(const anchor_t* in) {
     // pattern (matches apply_seasonal_labels).
     ACAP_EVENTS_Remove_Event(existing->id);
     if (ACAP_EVENTS_Add_Event(existing->id, existing->name,
-                              anchor_is_stateful(existing)) != 0) {
+                              anchor_is_stateful(existing)) == 0) {
         *existing = prev;
         (void)persist_operator_slice_locked();
         state_unlock();
@@ -1208,7 +1210,7 @@ int anchors_replace_all(const anchor_t* operator_anchors, size_t count) {
     // Declare the new topics.
     for (size_t i = 0; i < count; i++) {
         anchor_t* a = &g_anchors[g_n_built_in + i];
-        if (ACAP_EVENTS_Add_Event(a->id, a->name, anchor_is_stateful(a)) != 0) {
+        if (ACAP_EVENTS_Add_Event(a->id, a->name, anchor_is_stateful(a)) == 0) {
             LOG_WARN("anchors_replace_all: ACAP_EVENTS_Add_Event('%s') failed",
                      a->id);
             // Best-effort: log and continue. Test agent should assert

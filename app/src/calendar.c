@@ -655,7 +655,7 @@ int calendar_create(const calendar_entry_t* in) {
     }
 
     if (ACAP_EVENTS_Add_Event(slot->id, slot->name,
-                              entry_is_stateful(slot)) != 0) {
+                              entry_is_stateful(slot)) == 0) {
         g_count = prev_count;
         (void)persist_locked();
         state_unlock();
@@ -688,7 +688,7 @@ int calendar_update(const calendar_entry_t* in) {
 
     ACAP_EVENTS_Remove_Event(g_entries[idx].id);
     if (ACAP_EVENTS_Add_Event(g_entries[idx].id, g_entries[idx].name,
-                              entry_is_stateful(&g_entries[idx])) != 0) {
+                              entry_is_stateful(&g_entries[idx])) == 0) {
         g_entries[idx] = prev;
         (void)persist_locked();
         state_unlock();
