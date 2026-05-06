@@ -1018,23 +1018,25 @@ SDK image is bit-stable across the two runs:
 SDK_DIGEST=sha256:abc...`), the `FROM` line resolves to
 `axisecp/acap-native-sdk:<tag>@<digest>`, pinning the image
 immutably. When empty (default for dev / CI builds), it falls
-back to the floating tag — which is acceptable because both runs
-of the reproducibility CI job use the same already-pulled local
-image within a single workflow run, and CI's `runs-on:
-ubuntu-24.04` runner does not auto-pull between steps. The
-**integrator MUST resolve and supply `SDK_DIGEST` at tag time**
-for `v1.0.0-beta` and forward releases, via:
+back to the floating tag — acceptable because both runs of the
+reproducibility CI job use the same already-pulled local image
+within a single workflow run.
 
-```
-docker buildx imagetools inspect \
-  axisecp/acap-native-sdk:${SDK_VERSION}-${ARCH}-ubuntu${UBUNTU_VERSION} \
-  | awk '/^Digest:/ {print $2}'
-```
-
-This split (opt-in pin via build-arg vs hard-coded `FROM @sha256`)
-keeps dev workflow ergonomic — `make build-armv7hf` works without
-the integrator running an extra command — while making the
+For releases, the digest is resolved automatically by
+`.github/workflows/release.yml` via `docker buildx imagetools
+inspect ...` and threaded into the build through the per-arch
+Makefile vars `SDK_DIGEST_armv7hf` / `SDK_DIGEST_aarch64`
+(per-arch because the SDK image is multi-platform and each arch
+has its own digest). This keeps the dev workflow ergonomic — a
+plain `make build-armv7hf` keeps working — while making the
 release artifact's SDK provenance verifiable.
+
+The integrator can still pin manually for ad-hoc reproducibility
+checks:
+
+```
+SDK_DIGEST_armv7hf=sha256:abc... make -C app build-armv7hf
+```
 
 **Verification gate.** A new CI workflow,
 `.github/workflows/reproducibility.yml`, builds each architecture

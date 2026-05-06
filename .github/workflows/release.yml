@@ -46,7 +46,26 @@ jobs:
           SDE=$(git log -1 --pretty=%ct)
           echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
 
+      - name: Resolve SDK image digest (DL-25)
+        id: sdkpin
+        run: |
+          set -euo pipefail
+          SDK_REF="axisecp/acap-native-sdk:12.6.0-${{ matrix.arch }}-ubuntu24.04"
+          # `docker buildx imagetools inspect` returns multi-platform
+          # manifest data; the line `Digest: sha256:...` at the top of
+          # the output is the per-platform image digest we want.
+          DIGEST=$(docker buildx imagetools inspect "$SDK_REF" \
+                     | awk '/^Digest:/ {print $2; exit}')
+          if [ -z "${DIGEST:-}" ]; then
+            echo "WARN: could not resolve digest for $SDK_REF — falling back to floating tag" >&2
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Resolved $SDK_REF -> $DIGEST"
+
       - name: Build
+        env:
+          SDK_DIGEST_armv7hf: ${{ matrix.arch == 'armv7hf' && steps.sdkpin.outputs.digest || '' }}
+          SDK_DIGEST_aarch64: ${{ matrix.arch == 'aarch64' && steps.sdkpin.outputs.digest || '' }}
         run: make -C app build-${{ matrix.arch }}
 
       - name: Verify size cap (NFR-1, <= 5 MB)

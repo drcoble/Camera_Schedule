@@ -67,6 +67,13 @@ DIST_DIR        := $(REPO_ROOT)/dist
 SDK_VERSION     ?= 12.6.0
 UBUNTU_VERSION  ?= 24.04
 
+# Optional SDK image digest pin (BR-6 / DL-25). Empty by default —
+# release.yml resolves the digest at tag time and exports
+# SDK_DIGEST_<arch> in the env. Per-arch because the SDK image is
+# multi-platform and each arch has its own digest.
+SDK_DIGEST_armv7hf ?=
+SDK_DIGEST_aarch64 ?=
+
 .PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license \
         test test-lunar test-seasonal test-anchors test-calendar \
         test-export-import test-clean license-audit reproducibility-check
@@ -227,6 +234,7 @@ build-armv7hf: stage-license ## Build the armv7hf .eap (OS 11.11+ and OS 12 on A
 		--build-arg ARCH=armv7hf \
 		--build-arg SDK_VERSION=$(SDK_VERSION) \
 		--build-arg UBUNTU_VERSION=$(UBUNTU_VERSION) \
+		--build-arg SDK_DIGEST=$(SDK_DIGEST_armv7hf) \
 		--target export --output type=local,dest=$(DIST_DIR)/armv7hf \
 		$(APP_DIR)
 	@cp -f $(DIST_DIR)/armv7hf/*.eap $(DIST_DIR)/camera-schedule-armv7hf.eap
@@ -239,6 +247,7 @@ build-aarch64: stage-license ## Build the aarch64 .eap (OS 12 on Artpec-8+)
 		--build-arg ARCH=aarch64 \
 		--build-arg SDK_VERSION=$(SDK_VERSION) \
 		--build-arg UBUNTU_VERSION=$(UBUNTU_VERSION) \
+		--build-arg SDK_DIGEST=$(SDK_DIGEST_aarch64) \
 		--target export --output type=local,dest=$(DIST_DIR)/aarch64 \
 		$(APP_DIR)
 	@cp -f $(DIST_DIR)/aarch64/*.eap $(DIST_DIR)/camera-schedule-aarch64.eap

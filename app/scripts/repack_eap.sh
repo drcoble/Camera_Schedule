@@ -49,14 +49,16 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/payload"
 gunzip -c "$EAP" | tar -xf - -C "$WORK/payload"
 
-# Stage 2: normalize file timestamps. SOURCE_DATE_EPOCH is in UNIX
-# seconds; touch's `-d @sec` form is the portable way to set both
-# mtime and atime to that value.
-find "$WORK/payload" -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
-
-# Stage 3: re-tar with sorted entries, normalized owner/group/mtime.
-# GNU tar honors --sort; if we're on a host without it, fall back to
-# generating a sorted file list and feeding it via -T.
+# Stage 2: re-tar with sorted entries, normalized owner/group/mtime.
+# `tar --mtime=@SOURCE_DATE_EPOCH` overrides every per-entry mtime in
+# the archive output regardless of the source-tree mtime, so a
+# pre-archive `touch` pass is unnecessary (and `touch -d "@sec"` is
+# GNU-only — BSD touch does not accept that form, which would break
+# `make reproducibility-check` on macOS dev hosts).
+#
+# GNU tar honors --sort; if we're on a host without it (BSD tar on
+# macOS), fall back to generating a sorted file list and feeding it
+# via -T.
 TAR_FLAGS=(
   --owner=0
   --group=0
