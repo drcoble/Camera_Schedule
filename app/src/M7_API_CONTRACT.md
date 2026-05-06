@@ -111,9 +111,14 @@ of recent recompute summaries (up to 50 newest-first).
     "lookahead_days": 7,
     "event_name_prefix": "",
     "poll_interval_seconds": 60
-  }
+  },
+  "rss_kb": 4528
 }
 ```
+
+**`rss_kb` (DL-21)**: VmRSS read from `/proc/self/status`, in kB. `0`
+when unreadable (sandboxed `/proc`, ENOENT). Used by the M7 soak
+harness for memory-leak detection.
 
 **Trigger reasons** (closed enum):
 - `boot` — `timers_init` first call.

@@ -1189,6 +1189,22 @@ static void HTTP_Endpoint_Status(const ACAP_HTTP_Response response,
     cJSON_AddBoolToObject(root, "debug_logging", g_debug_logging_enabled);
     cJSON_AddItemToObject(root, "axparameters", build_axparams_json());
 
+    // rss_kb (DL-21): VmRSS from /proc/self/status. 0 if unreadable
+    // (sandboxed /proc, ENOENT, etc.) — non-fatal for the soak harness.
+    long rss_kb = 0;
+    FILE* f = fopen("/proc/self/status", "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof line, f)) {
+            if (strncmp(line, "VmRSS:", 6) == 0) {
+                rss_kb = strtol(line + 6, NULL, 10);
+                break;
+            }
+        }
+        fclose(f);
+    }
+    cJSON_AddNumberToObject(root, "rss_kb", (double)rss_kb);
+
     ACAP_HTTP_Respond_JSON(response, root);
     cJSON_Delete(root);
 }
