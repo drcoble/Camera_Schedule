@@ -1,0 +1,191 @@
+name: Release
+
+# Triggers on annotated tag pushes matching v1.2.3 or v1.2.3-beta.
+# A `workflow_dispatch` `dry_run` input is also exposed so the
+# integrator can verify build + checksum + asset assembly without
+# actually publishing a GitHub Release. See DL-26 for policy.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-beta'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to dry-run for (e.g. v1.0.0-beta). Build + assemble only; no GitHub Release is created.'
+        required: true
+        default: 'v1.0.0-beta'
+      dry_run:
+        description: 'Skip the gh release create step.'
+        required: false
+        default: 'true'
+
+permissions:
+  contents: write   # needed by `gh release create`
+  id-token: read
+
+jobs:
+  build:
+    name: Build deterministic ${{ matrix.arch }} .eap
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [armv7hf, aarch64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pin SOURCE_DATE_EPOCH from head commit
+        run: |
+          SDE=$(git log -1 --pretty=%ct)
+          echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: make -C app build-${{ matrix.arch }}
+
+      - name: Verify size cap (NFR-1, <= 5 MB)
+        run: |
+          set -euo pipefail
+          EAP=dist/camera-schedule-${{ matrix.arch }}.eap
+          SIZE=$(stat -c%s "$EAP")
+          echo "$EAP size: $SIZE bytes"
+          if [ "$SIZE" -gt 5242880 ]; then
+            echo "ERROR: $EAP exceeds 5 MB cap (NFR-1)"; exit 1
+          fi
+
+      - name: Compute SHA-256
+        run: |
+          cd dist
+          sha256sum camera-schedule-${{ matrix.arch }}.eap \
+            > camera-schedule-${{ matrix.arch }}.eap.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: |
+            dist/camera-schedule-${{ matrix.arch }}.eap
+            dist/camera-schedule-${{ matrix.arch }}.eap.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          if [[ "$TAG" == *-beta ]]; then
+            PRERELEASE=true
+          else
+            PRERELEASE=false
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: $TAG (prerelease=$PRERELEASE)"
+
+      - name: Download armv7hf artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-armv7hf
+          path: assets/
+
+      - name: Download aarch64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-aarch64
+          path: assets/
+
+      - name: Assemble release bundle
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp assets/camera-schedule-armv7hf.eap release/
+          cp assets/camera-schedule-aarch64.eap release/
+          # Combined SHA-256 manifest covering both .eap files.
+          (cd release && sha256sum *.eap > SHA-256SUMS.txt)
+          cp THIRD_PARTY_LICENSES.md release/
+          # CHANGELOG.md is owned by SSE-B and may not exist in this
+          # branch yet. Ship a placeholder if absent so the release
+          # asset list is stable.
+          if [ -f CHANGELOG.md ]; then
+            cp CHANGELOG.md release/
+          else
+            echo "# Changelog (placeholder)" > release/CHANGELOG.md
+            echo "" >> release/CHANGELOG.md
+            echo "CHANGELOG.md was not present at tag time. Re-run release after the documentarian lands the file." >> release/CHANGELOG.md
+          fi
+          ls -la release/
+
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        run: |
+          set -euo pipefail
+          python3 app/scripts/extract_release_notes.py \
+            --tag "${{ steps.tag.outputs.tag }}" \
+            --changelog release/CHANGELOG.md \
+            --output release/RELEASE_NOTES.md
+          echo "--- release notes ---"
+          cat release/RELEASE_NOTES.md
+
+      - name: Create GitHub Release (draft)
+        if: github.event_name == 'push' || github.event.inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          PRERELEASE_FLAG=""
+          if [ "${{ steps.tag.outputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          # `--draft` is unconditional: per DL-26 the release is always
+          # created as a draft so the integrator can review the body
+          # and assets before publishing. The integrator un-drafts via
+          # the GitHub UI or `gh release edit --draft=false`.
+          gh release create "$TAG" \
+            --draft \
+            $PRERELEASE_FLAG \
+            --title "Camera_Schedule $TAG" \
+            --notes-file release/RELEASE_NOTES.md \
+            release/camera-schedule-armv7hf.eap \
+            release/camera-schedule-aarch64.eap \
+            release/SHA-256SUMS.txt \
+            release/THIRD_PARTY_LICENSES.md \
+            release/CHANGELOG.md
+
+      - name: Dry-run summary
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
+        run: |
+          echo "Dry-run completed. Assembled assets:"
+          ls -la release/
+          echo ""
+          echo "SHA-256SUMS.txt:"
+          cat release/SHA-256SUMS.txt
+          echo ""
+          echo "Release would be created with:"
+          echo "  tag: ${{ steps.tag.outputs.tag }}"
+          echo "  prerelease: ${{ steps.tag.outputs.prerelease }}"
+          echo "  draft: true (always — DL-26)"
+
+      - name: Upload final release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-${{ steps.tag.outputs.tag }}
+          path: release/
+          if-no-files-found: error

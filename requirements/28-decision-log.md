@@ -1057,3 +1057,64 @@ artifacts.
 [../app/Makefile](../app/Makefile),
 [../app/scripts/repack_eap.sh](../app/scripts/repack_eap.sh),
 [../.github/workflows/reproducibility.yml](../.github/workflows/reproducibility.yml).
+
+---
+
+## DL-26 — Release workflow always creates a *draft* release; integrator publishes manually
+
+Date: 2026-05-06  |  Status: accepted
+
+**Decision.** The release workflow
+(`.github/workflows/release.yml`) creates GitHub Releases with the
+`--draft` flag unconditionally. Promotion from draft to public is
+a manual integrator step (GitHub UI or
+`gh release edit <tag> --draft=false`).
+
+**Rationale.** [DR-12](./25-licensing-and-distribution.md) requires
+a public release page on tag, but says nothing about whether
+publication should be automatic. Three reasons to gate publication
+on a human:
+
+1. **Asset review.** The release attaches both `.eap` files,
+   `SHA-256SUMS.txt`, `THIRD_PARTY_LICENSES.md`, and
+   `CHANGELOG.md`. A manual review confirms the assembled set
+   is what the integrator expected before the world sees it.
+   Beta releases especially benefit — the deferred-signing /
+   deferred-aarch64-smoke posture from
+   [DL-23](./28-decision-log.md) needs a clearly worded
+   release-page note that's easier to author by hand than to
+   template.
+2. **CHANGELOG synchronization.** SSE-B owns CHANGELOG.md and
+   may push final wording in a separate commit late in the cycle.
+   A draft lets the integrator regenerate the release page (delete
+   draft, re-tag if needed, or `gh release edit --notes-file`)
+   without an awkward "republished" announcement.
+3. **Mistake recovery.** A tag pushed by mistake produces a
+   draft, not a public release. The draft can be discarded
+   without leaving a permanent artifact in the public release
+   list.
+
+The release notes body is auto-extracted from the `CHANGELOG.md`
+section matching the tag (Keep a Changelog convention:
+`## [vX.Y.Z]` or `## vX.Y.Z`). If the section is missing, the
+body falls back to a one-line "re-run after CHANGELOG lands"
+placeholder so the workflow doesn't fail; the integrator
+amends the draft body before publishing.
+
+**Pre-release flag.** Tags ending in `-beta` get
+`--prerelease`; everything else is a full release once
+published.
+
+**Dry-run path.** A `workflow_dispatch` trigger with
+`dry_run=true` (default) runs the build + assemble path without
+calling `gh release create`. Used by the integrator to verify
+the assembly works before pushing the actual tag.
+
+**Removed / changed.**
+- Release-page deliverable from DR-12 / DL-23 is now the draft
+  output of `release.yml`; the human "publish" step is the
+  documented hand-off.
+
+**References.** [DR-12](./25-licensing-and-distribution.md),
+[DL-23](./28-decision-log.md),
+[../.github/workflows/release.yml](../.github/workflows/release.yml).
