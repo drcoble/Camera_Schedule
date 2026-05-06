@@ -11,16 +11,28 @@
 #
 # The Makefile drives both via `make build-all`.
 #
-# BR-6 (reproducibility) wants a digest pin instead of a tag, but the
-# digest changes per SDK release. The CI workflow records the resolved
-# digest on every build; before tagging v1.0 (M8), the production tags
-# below should be replaced with @sha256:... pins.
+# BR-6 (reproducibility) — see DL-25.
+#
+# The integrator fills SDK_DIGEST at tag time by running:
+#
+#   docker buildx imagetools inspect \
+#     axisecp/acap-native-sdk:${SDK_VERSION}-${ARCH}-ubuntu${UBUNTU_VERSION} \
+#     | awk '/^Digest:/ {print $2}'
+#
+# If SDK_DIGEST is non-empty (e.g. `--build-arg SDK_DIGEST=sha256:abc...`),
+# the FROM line below uses the immutable @sha256: form. If unset
+# (default for dev builds), it falls back to the tag — which is stable
+# inside a single CI run because both reproducibility runs hit the
+# same already-pulled local image. SOURCE_DATE_EPOCH and the post-build
+# repack (app/scripts/repack_eap.sh) handle the remaining determinism
+# plumbing on the .eap container itself.
 
 ARG SDK_VERSION=12.6.0
 ARG UBUNTU_VERSION=24.04
 ARG ARCH=armv7hf
+ARG SDK_DIGEST=
 
-FROM axisecp/acap-native-sdk:${SDK_VERSION}-${ARCH}-ubuntu${UBUNTU_VERSION} AS builder
+FROM axisecp/acap-native-sdk:${SDK_VERSION}-${ARCH}-ubuntu${UBUNTU_VERSION}${SDK_DIGEST:+@${SDK_DIGEST}} AS builder
 
 ARG ARCH
 ENV ARCH=${ARCH}

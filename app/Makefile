@@ -67,7 +67,29 @@ DIST_DIR        := $(REPO_ROOT)/dist
 SDK_VERSION     ?= 12.6.0
 UBUNTU_VERSION  ?= 24.04
 
-.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license test test-lunar test-seasonal test-anchors test-calendar test-export-import test-clean
+.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license \
+        test test-lunar test-seasonal test-anchors test-calendar \
+        test-export-import test-clean license-audit reproducibility-check
+
+# ---------------------------------------------------------------------
+# Reproducibility plumbing (BR-6 / DL-25)
+# ---------------------------------------------------------------------
+#
+# SOURCE_DATE_EPOCH pins the timestamp embedded in tar entries and the
+# repacked .eap. The default below derives it from the head commit's
+# author timestamp so a clean checkout at the same SHA produces the
+# same value. CI overrides via env (`SOURCE_DATE_EPOCH=$(git log -1
+# --pretty=%ct)` is the canonical form).
+#
+# If git isn't available (release-tarball builds), the env var must
+# be supplied by the caller.
+SOURCE_DATE_EPOCH ?= $(shell git -C $(REPO_ROOT) log -1 --pretty=%ct 2>/dev/null)
+export SOURCE_DATE_EPOCH
+
+# LC_ALL=C pins sort/locale-sensitive utilities to a stable order.
+export LC_ALL := C
+
+REPACK_EAP := bash $(APP_DIR)/scripts/repack_eap.sh
 
 # ---------------------------------------------------------------------
 # Host-side tests (no docker, no SDK)
@@ -208,6 +230,7 @@ build-armv7hf: stage-license ## Build the armv7hf .eap (OS 11.11+ and OS 12 on A
 		--target export --output type=local,dest=$(DIST_DIR)/armv7hf \
 		$(APP_DIR)
 	@cp -f $(DIST_DIR)/armv7hf/*.eap $(DIST_DIR)/camera-schedule-armv7hf.eap
+	@$(REPACK_EAP) $(DIST_DIR)/camera-schedule-armv7hf.eap
 	@ls -la $(DIST_DIR)/camera-schedule-armv7hf.eap
 
 build-aarch64: stage-license ## Build the aarch64 .eap (OS 12 on Artpec-8+)
@@ -219,7 +242,45 @@ build-aarch64: stage-license ## Build the aarch64 .eap (OS 12 on Artpec-8+)
 		--target export --output type=local,dest=$(DIST_DIR)/aarch64 \
 		$(APP_DIR)
 	@cp -f $(DIST_DIR)/aarch64/*.eap $(DIST_DIR)/camera-schedule-aarch64.eap
+	@$(REPACK_EAP) $(DIST_DIR)/camera-schedule-aarch64.eap
 	@ls -la $(DIST_DIR)/camera-schedule-aarch64.eap
+
+# ---------------------------------------------------------------------
+# License audit (NFR-6 / DR-11) — see DL-24.
+# ---------------------------------------------------------------------
+license-audit: ## Run the bundled-license audit (NFR-6 / DR-11)
+	@python3 $(APP_DIR)/scripts/license_audit.py
+
+# ---------------------------------------------------------------------
+# Reproducibility check (BR-6) — build twice, assert SHA-256 identity.
+# ---------------------------------------------------------------------
+#
+# This target is intended for local-dev verification; the full CI gate
+# lives in `.github/workflows/reproducibility.yml` and runs the same
+# logic on the GitHub Actions runner. Both architectures are checked
+# in parallel makes; both must produce identical SHA-256 across the
+# two runs.
+reproducibility-check: ## Build each arch twice and assert SHA-256 identity (BR-6)
+	@set -euo pipefail; \
+	mkdir -p $(DIST_DIR)/_repro1 $(DIST_DIR)/_repro2; \
+	for arch in armv7hf aarch64; do \
+	  echo "==> reproducibility: $$arch run 1"; \
+	  $(MAKE) -C $(APP_DIR) build-$$arch >/dev/null; \
+	  cp $(DIST_DIR)/camera-schedule-$$arch.eap $(DIST_DIR)/_repro1/; \
+	  echo "==> reproducibility: $$arch run 2 (clean)"; \
+	  $(MAKE) -C $(APP_DIR) dist-clean >/dev/null; \
+	  $(MAKE) -C $(APP_DIR) build-$$arch >/dev/null; \
+	  cp $(DIST_DIR)/camera-schedule-$$arch.eap $(DIST_DIR)/_repro2/; \
+	  H1=$$(sha256sum $(DIST_DIR)/_repro1/camera-schedule-$$arch.eap | awk '{print $$1}'); \
+	  H2=$$(sha256sum $(DIST_DIR)/_repro2/camera-schedule-$$arch.eap | awk '{print $$1}'); \
+	  echo "$$arch run1: $$H1"; \
+	  echo "$$arch run2: $$H2"; \
+	  if [ "$$H1" != "$$H2" ]; then \
+	    echo "FAIL: $$arch .eap is not reproducible (BR-6)"; exit 1; \
+	  fi; \
+	  echo "PASS: $$arch reproducible"; \
+	done; \
+	rm -rf $(DIST_DIR)/_repro1 $(DIST_DIR)/_repro2
 
 build-all: build-armv7hf build-aarch64 ## Build both release artifacts
 

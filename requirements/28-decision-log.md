@@ -971,3 +971,89 @@ entry justifying the relink commitment.
 [../approved-licenses.txt](../approved-licenses.txt),
 [../app/scripts/license_audit.py](../app/scripts/license_audit.py),
 [../.github/workflows/license-audit.yml](../.github/workflows/license-audit.yml).
+
+---
+
+## DL-25 — Reproducibility plumbing: SOURCE_DATE_EPOCH + post-build .eap repack + opt-in SDK digest pin
+
+Date: 2026-05-06  |  Status: accepted
+
+**Decision.** [BR-6](./22-build-and-packaging.md) reproducibility is
+enforced by three independent pieces of plumbing, all sitting outside
+the in-container `acap-build` invocation (`acap-build` itself is a
+black box and was empirically not assumed to honor
+`SOURCE_DATE_EPOCH`):
+
+1. **`SOURCE_DATE_EPOCH` defaulted from the head commit.** The
+   Makefile sets `SOURCE_DATE_EPOCH ?= $(git log -1 --pretty=%ct)`
+   so a clean checkout at a given SHA derives the same epoch
+   without operator action. CI exports the same value before
+   invoking `make`.
+2. **`LC_ALL=C` exported by the Makefile.** Pins `sort` and other
+   locale-sensitive utilities to the C collation, eliminating a
+   second-order non-determinism source.
+3. **`app/scripts/repack_eap.sh` rewrites the `.eap` after
+   `acap-build`.** The `.eap` is a gzip'd tar; the repack
+   re-extracts, normalizes file mtimes to `SOURCE_DATE_EPOCH`,
+   re-tars with `--sort=name --owner=0 --group=0 --numeric-owner
+   --mtime=@SOURCE_DATE_EPOCH --format=ustar`, and recompresses with
+   `gzip -n9`. `gzip -n` strips the original-filename and mtime
+   fields per RFC 1952 §2.3.1, eliminating the embedded build-time
+   timestamps. The Makefile invokes the repack from
+   `build-armv7hf` and `build-aarch64`, so the deterministic `.eap`
+   is the only artifact produced.
+
+The compiled ELF binary inside the .eap is reproducible *given* the
+SDK image is bit-stable across the two runs:
+
+- Linker flag `-s` (already present in `LDLIBS` since v0.1.0)
+  strips the binary at link time, removing DWARF debug-info
+  timestamps and randomized ELF build-ids.
+- The project sources do not use `__DATE__` / `__TIME__` /
+  `__FILE__`-leaking-an-absolute-path patterns (verified by
+  grepping `app/src/`).
+
+**SDK image digest pin.** The Dockerfile accepts an optional
+`SDK_DIGEST` build-arg. When non-empty (e.g. `--build-arg
+SDK_DIGEST=sha256:abc...`), the `FROM` line resolves to
+`axisecp/acap-native-sdk:<tag>@<digest>`, pinning the image
+immutably. When empty (default for dev / CI builds), it falls
+back to the floating tag — which is acceptable because both runs
+of the reproducibility CI job use the same already-pulled local
+image within a single workflow run, and CI's `runs-on:
+ubuntu-24.04` runner does not auto-pull between steps. The
+**integrator MUST resolve and supply `SDK_DIGEST` at tag time**
+for `v1.0.0-beta` and forward releases, via:
+
+```
+docker buildx imagetools inspect \
+  axisecp/acap-native-sdk:${SDK_VERSION}-${ARCH}-ubuntu${UBUNTU_VERSION} \
+  | awk '/^Digest:/ {print $2}'
+```
+
+This split (opt-in pin via build-arg vs hard-coded `FROM @sha256`)
+keeps dev workflow ergonomic — `make build-armv7hf` works without
+the integrator running an extra command — while making the
+release artifact's SDK provenance verifiable.
+
+**Verification gate.** A new CI workflow,
+`.github/workflows/reproducibility.yml`, builds each architecture
+twice on every push/PR and asserts SHA-256 identity. On mismatch
+it diffs tar contents and uploads both `.eap` files as forensic
+artifacts.
+
+**Removed / changed.**
+- Dockerfile's prior comment "before tagging v1.0 (M8), the
+  production tags below should be replaced with @sha256:... pins"
+  is implemented as the `SDK_DIGEST` build-arg path above.
+- Makefile gains `SOURCE_DATE_EPOCH`, `LC_ALL=C`, and the
+  `REPACK_EAP` invocation in the build-armv7hf / build-aarch64
+  recipes.
+- Makefile gains a new `reproducibility-check` target for local
+  verification (CI uses the workflow).
+
+**References.** [BR-6](./22-build-and-packaging.md),
+[../app/Dockerfile](../app/Dockerfile),
+[../app/Makefile](../app/Makefile),
+[../app/scripts/repack_eap.sh](../app/scripts/repack_eap.sh),
+[../.github/workflows/reproducibility.yml](../.github/workflows/reproducibility.yml).

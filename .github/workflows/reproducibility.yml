@@ -1,0 +1,79 @@
+name: Reproducibility (BR-6)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  reproducibility:
+    name: Build twice, assert SHA-256 identity (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [armv7hf, aarch64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the Makefile's git-derived
+          # SOURCE_DATE_EPOCH default can read the head commit.
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pin SOURCE_DATE_EPOCH from head commit
+        id: epoch
+        run: |
+          SDE=$(git log -1 --pretty=%ct)
+          echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
+          echo "head_epoch=$SDE" >> "$GITHUB_OUTPUT"
+          echo "head commit author timestamp: $SDE"
+
+      - name: Build run 1
+        run: |
+          make -C app build-${{ matrix.arch }}
+          mkdir -p run1
+          cp dist/camera-schedule-${{ matrix.arch }}.eap run1/
+
+      - name: Clean
+        run: make -C app dist-clean
+
+      - name: Build run 2
+        run: |
+          make -C app build-${{ matrix.arch }}
+          mkdir -p run2
+          cp dist/camera-schedule-${{ matrix.arch }}.eap run2/
+
+      - name: Assert SHA-256 identity
+        run: |
+          set -euo pipefail
+          H1=$(sha256sum run1/camera-schedule-${{ matrix.arch }}.eap | awk '{print $1}')
+          H2=$(sha256sum run2/camera-schedule-${{ matrix.arch }}.eap | awk '{print $1}')
+          echo "run1: $H1"
+          echo "run2: $H2"
+          if [ "$H1" != "$H2" ]; then
+            echo "FAIL: ${{ matrix.arch }} .eap is not reproducible (BR-6)"
+            echo "Diffing tar contents to surface the cause:"
+            mkdir -p run1.x run2.x
+            tar -xzf run1/camera-schedule-${{ matrix.arch }}.eap -C run1.x || true
+            tar -xzf run2/camera-schedule-${{ matrix.arch }}.eap -C run2.x || true
+            diff -r run1.x run2.x || true
+            exit 1
+          fi
+          echo "PASS: ${{ matrix.arch }} reproducible (sha256=$H1)"
+
+      - name: Upload both .eaps for forensic comparison
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproducibility-mismatch-${{ matrix.arch }}
+          path: |
+            run1/camera-schedule-${{ matrix.arch }}.eap
+            run2/camera-schedule-${{ matrix.arch }}.eap
