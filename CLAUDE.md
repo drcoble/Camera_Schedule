@@ -8,11 +8,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 empty `.eap`), `v0.2.0` (M2 sunrise/sunset MVP), `v0.3.0` (M3 full
 solar suite + polar safety).
 
-**M4 + M5 code-complete and lab-installed; calendar-locked gates
-pending.** Both `.eap` artifacts are running v0.5.0 on both lab
-cameras (10.1.40.113 / OS 12.10.61, 10.1.40.160 / OS 11.11.192).
-Tags `v0.4.0` and `v0.5.0` are deliberately held until the firing
-gates verify on their respective dates:
+**M6 shipped** at `v0.6.0`: operator-defined anchors (offset /
+paired / numeric-threshold), user calendar entries (single-date /
+date-range / annual), the unified Schedule list view (FR-11.6),
+and the firing-path-only enable/disable gate (FR-11.7 + DL-18).
+Running on both lab cameras with the four new FastCGI endpoints
+(`anchors`, `calendar`, `events`, `events_today`) verified
+end-to-end via VAPIX round-trip.
+
+**M4 + M5 code-complete and lab-installed; calendar-locked tags
+still pending.** The M4/M5 implementations ship inside v0.6.0 and
+are running on both cameras (10.1.40.113 / OS 12.10.61,
+10.1.40.160 / OS 11.11.192). Tags `v0.4.0` and `v0.5.0` are still
+held until the firing gates verify on their respective dates —
+v0.6.0 was tagged ahead of them because its acceptance gate is
+operator UI + CRUD verification, not a calendar event:
 
 - **M4 fullmoon gate**: 2026-05-31 (next full moon). Verifies the
   lunar-phase scheduler in `timers.c` correctly re-arms after fire.
@@ -20,9 +30,13 @@ gates verify on their respective dates:
   seasonal scheduler and that the `Longest Day` hemisphere-aware
   label renders correctly in the Action Rules UI for Northern lat.
 
-The current application boots a GLib main loop, exposes
-`about` / `location` FastCGI endpoints, and declares **22 AXEvent
-topics**:
+Verifying those gates retroactively tags v0.4.0 and v0.5.0; v0.6.0
+stays as the rolling head since it includes both M4 and M5 code.
+
+The current application boots a GLib main loop, exposes six FastCGI
+endpoints (`about`, `location`, `anchors`, `calendar`, `events`,
+`events_today`), and declares **22 built-in AXEvent topics** plus
+operator-defined topics added at runtime via `ACAP_EVENTS_Add_Event`:
 
 - 10 solar (FR-3): sunrise/sunset, civil/nautical/astronomical
   twilight pairs, solar noon, solar midnight (Meeus solar position).
@@ -33,7 +47,14 @@ topics**:
   decembersolstice (Meeus ch. 27 closed-form + Table 27.C corrections
   + Espenak-Meeus ΔT, see DL-19).
 
-Three scheduler patterns coexist in `timers.c`:
+Operator anchors persist as JSON in `localdata/anchors.json`,
+calendar entries in `localdata/calendar.json`, and the FR-11.7
+enable map in `localdata/schedule_enabled.json` — all written
+through the new `app/src/persistence.c` atomic-write helper
+(write-temp + fsync + parse-back + schema-validate + rename per
+FR-12.1).
+
+Four scheduler patterns coexist in `timers.c`:
 
 - **Daily slots** (10 solar + 4 lunar daily) — recomputed at local
   civil midnight, armed for the new UTC date.
@@ -41,11 +62,23 @@ Three scheduler patterns coexist in `timers.c`:
   cadence, re-arms in own fire callback. Armed once at boot.
 - **Season slots** (4 seasonal) — observer-independent, ~91 d
   cadence, re-arms in own fire callback. Armed once at boot.
+- **Anchor slots** (M6) — dynamic, rebuilt per recompute from
+  `anchors_get_by_index`. Pulse / stateful-offset / paired-interval
+  / numeric-threshold variants. Threshold anchors fire at local
+  civil midnight on satisfying days (proxy for solar midnight per
+  OQ-13).
 
-Phase + season slots are NOT touched by `timers_recompute_now()`
-since lat/lon changes don't affect them. Hemisphere-aware solstice
-labels (FR-5.2) are rebound by `apply_seasonal_labels()` in main.c
-at boot and on every location POST.
+Phase, season, and threshold-day slots are NOT touched by
+`timers_recompute_now()` for non-content changes that don't move
+the satisfying-day set. Hemisphere-aware solstice labels (FR-5.2)
+are rebound by `apply_seasonal_labels()` in main.c at boot and on
+every location POST.
+
+The FR-11.7 firing-path enable gate (`if
+(!anchors_is_enabled(slot->event_id)) continue;`) is at the top
+of `arm_event_slot`, `arm_phase_slot`, `arm_season_slot`, and the
+anchor-slot arm helpers. Disabled topics stay declared per DL-18 —
+only firing is suppressed.
 
 Polar latitudes still produce SOLAR_NO_EVENT / LUNAR_NO_EVENT INFO
 logs for rise/set while keeping the noon/midnight/transit slots
@@ -53,10 +86,14 @@ armed. Host-fixture worst errors: solar 40s of FR-3.7's 60s tier-1
 budget; lunar 22s of FR-4.5's 120s budget for habitable rise/set;
 seasonal 60s on a single 2028 boundary fixture, all others ≤50s.
 
-Next milestone is **M6 — Anchors, offsets, and user calendar** per
-[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). Don't tag v0.4.0 or
-v0.5.0 until both calendar gates above have produced observable
-fires from bound action rules.
+Next milestone is **M7 — Polished UI, logging, status panel** per
+[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). M7 picks up status
+panel (FR-11.2), debug-logging toggle (FR-13.4), config
+export/import (FR-12.3), AXParameter exposure (FR-12.2),
+"Recompute now" button (FR-10.2), and the formal accessibility
+audit (FR-11.4). Don't tag v0.4.0 or v0.5.0 until both calendar
+gates above have produced observable fires from bound action
+rules.
 
 ## Where to read first
 
