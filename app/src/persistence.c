@@ -6,20 +6,16 @@
 #define _GNU_SOURCE
 #include "persistence.h"
 #include "acap/ACAP.h"
+#include "log.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
-
-#define LOG(fmt, args...)      do { syslog(LOG_INFO,    fmt, ## args); } while (0)
-#define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
-#define LOG_ERROR(fmt, args...)  do { syslog(LOG_ERR,     fmt, ## args); } while (0)
 
 // Build "<sandbox><relative>" into `out`. Returns 0 on success, -1 on
 // truncation. The sandbox prefix already ends in '/'.
