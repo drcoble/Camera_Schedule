@@ -15,7 +15,7 @@ harness:
 
 1. Samples RSS of the `camera_schedule` process.
 2. Checks syslog for AppArmor DENIED entries via `system_log.cgi`.
-3. GETs `/local/camera_schedule/status` and records the full JSON body
+3. GETs `/local/camera_schedule/state` and records the full JSON body
    as a newline-delimited JSON (ND-JSON) line in `./soak/<startdate>.ndjson`.
 
 At the end of the run it writes a Markdown summary to
@@ -38,17 +38,17 @@ it for the entire run. SSH is not used: Axis cameras ship with SSH
 disabled by default, and password-authenticated SSH requires an
 interactive prompt or `sshpass` — neither is available in a CI
 environment. The only read-only remote path that works without SSH is
-a field in the app's own `/status` response.
+a field in the app's own `/state` response.
 
-#### `/status` endpoint `rss_kb` field (OQ-15 proposal)
+#### `/state` endpoint `rss_kb` field (OQ-15 proposal)
 
-The SSE is asked to add an `rss_kb` field to the `GET /status` response
+The SSE is asked to add an `rss_kb` field to the `GET /state` response
 (see **OQ-15** and **DL-21** in the requirements). If the field is present,
 the harness extracts it with:
 
 ```sh
 curl -sk --anyauth -u "root:$AXIS_PASS" \
-    "https://$AXIS_HOST_OS12/local/camera_schedule/status" \
+    "https://$AXIS_HOST_OS12/local/camera_schedule/state" \
     | grep -o '"rss_kb":[0-9]*' | grep -o '[0-9]*$'
 ```
 
@@ -82,7 +82,7 @@ and the report to show **FAIL**:
 |-----------|-----------|
 | RSS growth | > 20% above the minute-5 baseline sample |
 | AppArmor DENIED | Any `DENIED` entry containing `camera_schedule` in syslog |
-| GET /status non-200 | More than 3 consecutive non-200 responses |
+| GET /state non-200 | More than 3 consecutive non-200 responses |
 | Recompute errors | `last_recompute.errors > 0` on any sample |
 
 ---
@@ -153,7 +153,7 @@ if you want to preserve the run history.
 
 **Status**: open at time of writing. Proposal sent to SSE.
 
-If the SSE adds `rss_kb` to the `/status` response shape, the soak
+If the SSE adds `rss_kb` to the `/state` response shape, the soak
 harness automatically picks it up (Priority 2 path). No harness changes
 are needed. The field should expose the process's VmRSS in kB as read
 from `/proc/self/status` inside the status endpoint handler.

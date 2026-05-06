@@ -19,7 +19,7 @@
         { "access": "admin",  "name": "calendar",      "type": "fastCgi" },
         { "access": "admin",  "name": "events",        "type": "fastCgi" },
         { "access": "viewer", "name": "events_today",  "type": "fastCgi" },
-        { "access": "viewer", "name": "status",        "type": "fastCgi" },
+        { "access": "viewer", "name": "state",         "type": "fastCgi" },
         { "access": "admin",  "name": "recompute",     "type": "fastCgi" },
         { "access": "admin",  "name": "export",        "type": "fastCgi" },
         { "access": "admin",  "name": "import",        "type": "fastCgi" },

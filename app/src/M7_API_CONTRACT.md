@@ -51,7 +51,7 @@ for these.
 
 ## 1. Endpoint reference
 
-### 1.1 `GET /local/camera_schedule/status`
+### 1.1 `GET /local/camera_schedule/state`
 
 **Auth**: `viewer`-readable.
 
@@ -411,7 +411,7 @@ diagnostics and add the structured ring entry).
 Add four new entries to `manifest.json` httpConfig:
 
 ```json
-{ "access": "viewer", "name": "status",     "type": "fastCgi" },
+{ "access": "viewer", "name": "state",      "type": "fastCgi" },
 { "access": "admin",  "name": "recompute",  "type": "fastCgi" },
 { "access": "admin",  "name": "export",     "type": "fastCgi" },
 { "access": "admin",  "name": "import",     "type": "fastCgi" },

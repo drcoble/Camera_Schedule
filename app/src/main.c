@@ -64,7 +64,7 @@ int g_debug_logging_enabled = 0;
 static AXParameter* g_axparam = NULL;
 
 // AXParameter scalar settings (FR-12.2). Cached in-memory; the canonical
-// store is the AXParameter system, mirrored here so /status and /debug
+// store is the AXParameter system, mirrored here so /state and /debug
 // can return them without an extra round-trip through param.cgi.
 static int  g_param_lookahead_days       = 7;
 static char g_param_event_name_prefix[33] = "";
@@ -1089,7 +1089,7 @@ static void describe_tz(time_t now, char* tz_name, size_t tz_len, int* offset_se
     if (offset_seconds) *offset_seconds = (int)tm.tm_gmtoff;
 }
 
-// Build the AXParameter scalar mirror as JSON (used by /status and /debug).
+// Build the AXParameter scalar mirror as JSON (used by /state and /debug).
 static cJSON* build_axparams_json(void) {
     cJSON* o = cJSON_CreateObject();
     cJSON_AddNumberToObject(o, "lookahead_days",       g_param_lookahead_days);
@@ -2046,7 +2046,7 @@ int main(void) {
     ACAP_HTTP_Node("calendar",      HTTP_Endpoint_Calendar);
     ACAP_HTTP_Node("events",        HTTP_Endpoint_Events);
     ACAP_HTTP_Node("events_today",  HTTP_Endpoint_Events_Today);
-    ACAP_HTTP_Node("status",        HTTP_Endpoint_Status);
+    ACAP_HTTP_Node("state",         HTTP_Endpoint_Status);
     ACAP_HTTP_Node("recompute",     HTTP_Endpoint_Recompute);
     ACAP_HTTP_Node("export",        HTTP_Endpoint_Export);
     ACAP_HTTP_Node("import",        HTTP_Endpoint_Import);

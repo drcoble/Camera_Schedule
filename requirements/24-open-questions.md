@@ -55,6 +55,16 @@ than amending this list in place.
   the cleanest read-only sampling path for the M7 soak harness? SSH is
   disabled by default on shipping Axis firmware (probed during M7 STE
   work). The soak harness (`app/test/lab/soak_common.sh`) tries SSH
-  first, then falls back to a `rss_kb` field in `GET /status`. The SSE
+  first, then falls back to a `rss_kb` field in `GET /state`. The SSE
   should expose `rss_kb` (VmRSS in kB from `/proc/self/status`) in the
-  status endpoint response. See [DL-21](./28-decision-log.md).
+  state endpoint response. See [DL-21](./28-decision-log.md).
+
+- **OQ-16** — The vendored Timelapse2 ACAP framework registers its own
+  `/status` HTTP endpoint inside `ACAP()` init (`ACAP.c:691`), and
+  `ACAP_HTTP_Node` rejects duplicate paths with a silent warning. The
+  M7 status endpoint was originally specified as `/status` per
+  `M7_API_CONTRACT.md §1.1`, but that registration was clobbered at
+  runtime — operator GETs reached the framework's empty
+  `status_container` (literal `{}` body) instead of our handler.
+  Resolved by renaming the M7 endpoint to `/state` (lab-verified).
+  See [DL-22](./28-decision-log.md). Resolved.

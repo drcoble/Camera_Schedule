@@ -709,3 +709,51 @@ concerns.
 **References.** [M7_API_CONTRACT.md §1.1](../app/src/M7_API_CONTRACT.md),
 [docs/soak.md](../docs/soak.md),
 [24-open-questions.md](./24-open-questions.md) OQ-15.
+
+---
+
+## DL-22 — OQ-16: M7 status endpoint renamed `/status` → `/state`
+
+Date: 2026-05-06  |  Status: accepted
+
+**Decision.** The M7 status panel endpoint is renamed from `/status`
+to `/state` in the manifest, the C registration, the UI fetch, the
+soak harness, the M7_API_CONTRACT.md, and the soak.md doc.
+
+**Rationale.** The vendored Timelapse2 ACAP framework
+(`app/src/acap/ACAP.c:691`) registers its own `/status` HTTP node
+inside `ACAP()` init, intended to expose the framework's
+`status_container`. The M7 SSE registered our richer status handler
+under the same name. `ACAP_HTTP_Node()` (line 351) checks for
+duplicate paths and returns 0 with a `LOG_WARN("Duplicate HTTP node
+path: %s")` — it does NOT replace the prior registration. The
+warning is easy to miss in syslog. Lab smoke-test caught the
+symptom: every `GET /status` returned HTTP 200 with body `{}`,
+which is `cJSON_Print` of the framework's empty initial
+`status_container`. Renaming to `/state` is the smallest change
+that avoids the collision while leaving the framework's `/status`
+intact for future use. The framework's `/status` continues to serve
+`{}` until something populates `status_container` via
+`ACAP_STATUS()` — out of scope for M7.
+
+**Removed / changed.**
+- `app/manifest.json` httpConfig: `name: "status"` → `name: "state"`.
+- `app/src/main.c`: `ACAP_HTTP_Node("status", ...)` → `("state", ...)`.
+  Endpoint function name kept as `HTTP_Endpoint_Status` — the
+  internal C identifier is fine; only the URL path changed.
+- `app/html/js/schedule.js`: `fetch("status", ...)` → `fetch("state", ...)`.
+- `app/test/lab/soak_common.sh`: every `/local/camera_schedule/status`
+  URL → `/local/camera_schedule/state`.
+- `app/src/M7_API_CONTRACT.md §1.1`: endpoint heading and references.
+- `docs/soak.md`: endpoint references.
+- OQ-16 resolved.
+
+**Forward implication.** Anyone vendoring Timelapse2's ACAP
+framework into a new ACAP project should treat `/app`, `/settings`,
+and `/status` as **reserved** by the framework. M8's audit step
+should grep for these names in any new endpoint registrations as a
+pre-flight check.
+
+**References.** [M7_API_CONTRACT.md §1.1](../app/src/M7_API_CONTRACT.md),
+[ACAP.c:691](../app/src/acap/ACAP.c),
+[24-open-questions.md](./24-open-questions.md) OQ-16.

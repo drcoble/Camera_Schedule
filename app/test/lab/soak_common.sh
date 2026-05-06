@@ -67,7 +67,7 @@ soak_detect_rss_method() {
     local status_body
     status_body=$(curl -sk --anyauth \
         -u "root:${AXIS_PASS}" \
-        "https://${AXIS_HOST_OS12}/local/camera_schedule/status" 2>/dev/null || true)
+        "https://${AXIS_HOST_OS12}/local/camera_schedule/state" 2>/dev/null || true)
     if echo "${status_body}" | grep -q '"rss_kb"'; then
         RSS_METHOD="status_rss_kb"
         echo "[soak] RSS method: /status.rss_kb field"
@@ -89,7 +89,7 @@ soak_sample_rss() {
             local body
             body=$(curl -sk --anyauth \
                 -u "root:${AXIS_PASS}" \
-                "https://${AXIS_HOST_OS12}/local/camera_schedule/status" 2>/dev/null || echo "{}")
+                "https://${AXIS_HOST_OS12}/local/camera_schedule/state" 2>/dev/null || echo "{}")
             echo "$body" | grep -o '"rss_kb":[0-9]*' | grep -o '[0-9]*$' || echo 0
             ;;
         *)
@@ -121,7 +121,7 @@ soak_get_status() {
         -u "root:${AXIS_PASS}" \
         -o /dev/null \
         -w "%{http_code}" \
-        "https://${AXIS_HOST_OS12}/local/camera_schedule/status" 2>/dev/null \
+        "https://${AXIS_HOST_OS12}/local/camera_schedule/state" 2>/dev/null \
         || echo "000")
     echo "$body"
 }
@@ -129,7 +129,7 @@ soak_get_status() {
 soak_get_status_body() {
     curl -sk --anyauth \
         -u "root:${AXIS_PASS}" \
-        "https://${AXIS_HOST_OS12}/local/camera_schedule/status" 2>/dev/null \
+        "https://${AXIS_HOST_OS12}/local/camera_schedule/state" 2>/dev/null \
         || echo "{}"
 }
 

@@ -1,7 +1,7 @@
 // Vanilla JS — no frameworks, no CDN (DL-08).
 // M6: GET  /local/camera_schedule/events_today?lookahead_days=1  → schedule list
 //     POST /local/camera_schedule/events  body {id, enabled}     → toggle result
-// M7: GET  /local/camera_schedule/status                         → status panel
+// M7: GET  /local/camera_schedule/state                          → status panel
 //     POST /local/camera_schedule/recompute                      → recompute now
 //     GET  /local/camera_schedule/export                         → download (anchor link)
 //     POST /local/camera_schedule/import                         → import modal
@@ -17,7 +17,7 @@
   var rows = [];          // flat array of row objects from the last fetch
   var searchQuery = "";   // current filter string (lowercase)
   var pollTimer = null;   // setInterval handle for status polling
-  var pollInterval = 60;  // seconds, read from /status axparameters
+  var pollInterval = 60;  // seconds, read from /state axparameters
   var recentShowAll = false;     // whether "show all 50" is active
   var recentData = [];           // last received recent[] array
 
@@ -318,7 +318,7 @@
   // -----------------------------------------------------------------------
 
   function fetchStatus() {
-    fetch("status", { credentials: "same-origin" })
+    fetch("state", { credentials: "same-origin" })
       .then(function (resp) {
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         return resp.json();
