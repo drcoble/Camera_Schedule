@@ -6,10 +6,18 @@ publishes those times into the camera's Event Schedules so existing camera
 action rules (recording, day/night, IR illumination, PTZ guard tours, MQTT
 publish, etc.) can fire on those events.
 
+The current release is `v1.0.0-beta`. The application is feature-complete and
+lab-verified on AXIS OS 11.11+ and OS 12.x running on Artpec-7 / armv7hf.
+The aarch64 build is produced by CI and attached to the release page but has
+not yet been smoke-tested on Artpec-8+ hardware. The `.eap` artifacts are
+unsigned for the beta tag; both gates are documented in
+[DL-23](./requirements/28-decision-log.md) and lift before promotion to
+`v1.0.0` GA.
+
 **This project is open source under the [MIT License](./LICENSE).** Source,
-issue tracker, CI, and release artifacts are public. See `LICENSE`,
-`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `SECURITY.md` once the repository
-is initialized; details in
+issue tracker, CI, and release artifacts are public. See [`LICENSE`](./LICENSE),
+[`CONTRIBUTING.md`](./CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md),
+[`SECURITY.md`](./SECURITY.md), and [`CHANGELOG.md`](./CHANGELOG.md); details in
 [`requirements/25-licensing-and-distribution.md`](./requirements/25-licensing-and-distribution.md).
 
 ## Why this exists
@@ -61,10 +69,15 @@ not target ACAP v12.
 
 The milestone-driven implementation plan is in
 [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) — nine milestones (M0…M8)
-each ending in a tagged release. M0–M7 are shipped through `v0.7.0`;
-M8 produces `v1.0.0-beta`. Promotion from beta to GA (`v1.0.0`) is
-gated on Application Signing CI integration and Artpec-8+ hardware
-smoke per [DL-23](./requirements/28-decision-log.md).
+each ending in a tagged release. M0–M7 are shipped through `v0.7.0`.
+**M8 — beta release readiness — is currently in flight** and produces
+`v1.0.0-beta`: license-audit CI gate, reproducible-build verification,
+`CONTRIBUTING.md` / `SECURITY.md` / `CHANGELOG.md` polish, and a public
+release page with both `.eap` artifacts. See
+[`CHANGELOG.md`](./CHANGELOG.md) for the per-tag history. Promotion
+from beta to GA (`v1.0.0`) is gated on Application Signing CI
+integration and Artpec-8+ hardware smoke per
+[DL-23](./requirements/28-decision-log.md).
 
 ## Requirements layout
 
