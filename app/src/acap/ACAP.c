@@ -1448,12 +1448,23 @@ int ACAP_FILE_Delete(const char* filepath) {
 
     char fullpath[ACAP_MAX_PATH_LENGTH];
     snprintf(fullpath, sizeof(fullpath), "%s%s", ACAP_FILE_Path, filepath);
-    
+
     if (remove(fullpath) != 0) {
         LOG_WARN("Delete %s failed\n", fullpath);
         return 0;
     }
     return 1;
+}
+
+int ACAP_FILE_Exists(const char* filepath) {
+    if (!filepath) {
+        return 0;
+    }
+
+    char fullpath[ACAP_MAX_PATH_LENGTH];
+    snprintf(fullpath, sizeof(fullpath), "%s%s", ACAP_FILE_Path, filepath);
+
+    return access(fullpath, F_OK) == 0 ? 1 : 0;
 }
 
 cJSON* ACAP_FILE_Read(const char* filepath) {
