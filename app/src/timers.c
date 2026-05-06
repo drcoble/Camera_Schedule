@@ -42,6 +42,7 @@
 
 #define _GNU_SOURCE
 #include "timers.h"
+#include "anchors.h"
 #include "astro/solar.h"
 #include "astro/lunar.h"
 #include "astro/seasonal.h"
@@ -151,6 +152,40 @@ static season_slot_t season_slots[] = {
 static GSource* midnight_timer = NULL;
 
 // ---------------------------------------------------------------------
+// Anchor slot configuration (M6 — operator-defined anchors)
+// ---------------------------------------------------------------------
+//
+// Anchor slots are *dynamic*: built from anchors_get_by_index() at
+// every recompute. We do not maintain a stable handle table because
+// FR-9.3 requires a config change to cancel armed timers anyway, so a
+// simple "tear down and rebuild" pattern is correct and avoids the
+// plumbing of an indexable table that survives across mutations.
+//
+// Each anchor armed during a recompute owns up to two GSource handles
+// (start + end edge for paired / stateful-offset anchors; one for
+// pulse anchors). They live until the next recompute or until the slot
+// list is freed in timers_cleanup.
+typedef struct {
+    char     event_id[64];   // copy of anchor.id (avoids dangling ptr)
+    GSource* start_timer;
+    GSource* end_timer;
+} anchor_slot_t;
+
+static anchor_slot_t* anchor_slots      = NULL;
+static size_t         anchor_slot_count = 0;
+
+static void anchor_slots_cleanup(void) {
+    if (!anchor_slots) return;
+    for (size_t i = 0; i < anchor_slot_count; i++) {
+        cancel_source(&anchor_slots[i].start_timer);
+        cancel_source(&anchor_slots[i].end_timer);
+    }
+    free(anchor_slots);
+    anchor_slots = NULL;
+    anchor_slot_count = 0;
+}
+
+// ---------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------
 
@@ -193,6 +228,14 @@ static gboolean event_fire_callback(gpointer user_data) {
 // FR-3.8 / FR-4.5 graceful-degradation guidance.
 static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
     cancel_source(&slot->timer);
+
+    // FR-11.7 / DL-18: a disabled schedule keeps its AXEvent topic
+    // declared but the firing-path arm is suppressed.
+    if (!anchors_is_enabled(slot->event_id)) {
+        LOG("event '%s': disabled per schedule_enabled.json; not arming",
+            slot->event_id);
+        return;
+    }
 
     // SOLAR_NO_EVENT and LUNAR_NO_EVENT are both defined as (time_t)-1,
     // so a single sentinel check covers both daily-event domains.
@@ -283,6 +326,12 @@ static gboolean phase_fire_callback(gpointer user_data) {
 static void arm_phase_slot(phase_slot_t* slot) {
     cancel_source(&slot->timer);
 
+    if (!anchors_is_enabled(slot->event_id)) {
+        LOG("phase '%s': disabled per schedule_enabled.json; not arming",
+            slot->event_id);
+        return;
+    }
+
     time_t now;
     time(&now);
 
@@ -353,6 +402,12 @@ static gboolean season_fire_callback(gpointer user_data) {
 static void arm_season_slot(season_slot_t* slot) {
     cancel_source(&slot->timer);
 
+    if (!anchors_is_enabled(slot->event_id)) {
+        LOG("season '%s': disabled per schedule_enabled.json; not arming",
+            slot->event_id);
+        return;
+    }
+
     time_t now;
     time(&now);
 
@@ -386,6 +441,209 @@ static void arm_season_slot(season_slot_t* slot) {
 
     LOG("season '%s': armed for UTC %lld (in %u s, ~%.1f days)",
         slot->event_id, (long long)next, delay, (double)delay / 86400.0);
+}
+
+// ---------------------------------------------------------------------
+// Anchor scheduler — pulse, paired, and threshold helpers
+// ---------------------------------------------------------------------
+//
+// Threshold anchors. Per the M6 contract (M6_API_CONTRACT.md §2.2 / OQ-13)
+// the qualifying-day metric is sampled at *local solar noon* of each
+// day in the look-ahead window, and on a satisfying day the pulse
+// fires at *local solar midnight* of that day. For M6 we use *local
+// civil midnight / civil noon* as a simplification — solar midnight at
+// non-polar latitudes is within ~30 min of civil midnight (the
+// equation-of-time + longitude offset), which is well below the
+// resolution at which a "pulse on bright nights" trigger needs to be
+// timed. Tightening this to the astro/solar.c primitive can land in
+// M7 without breaking the wire schema.
+
+typedef struct {
+    char  event_id[64];
+    int   stateful;
+} fire_state_args_t;
+
+static gboolean fire_state_true_cb(gpointer user_data) {
+    fire_state_args_t* a = (fire_state_args_t*)user_data;
+    if (anchors_is_enabled(a->event_id)) {
+        LOG("Firing anchor '%s' state=true", a->event_id);
+        ACAP_EVENTS_Fire_State(a->event_id, 1);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean fire_state_false_cb(gpointer user_data) {
+    fire_state_args_t* a = (fire_state_args_t*)user_data;
+    if (anchors_is_enabled(a->event_id)) {
+        LOG("Firing anchor '%s' state=false", a->event_id);
+        ACAP_EVENTS_Fire_State(a->event_id, 0);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean fire_pulse_cb(gpointer user_data) {
+    fire_state_args_t* a = (fire_state_args_t*)user_data;
+    if (anchors_is_enabled(a->event_id)) {
+        LOG("Firing anchor '%s' (pulse)", a->event_id);
+        ACAP_EVENTS_Fire(a->event_id);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+// Allocate-and-arm a one-shot. delay_seconds <= 0 ⇒ skip.
+static GSource* arm_one_shot(time_t when, time_t now,
+                             GSourceFunc cb, fire_state_args_t* args) {
+    if (when <= now) return NULL;
+    guint delay = (guint)(when - now);
+    GSource* s = g_timeout_source_new_seconds(delay);
+    if (!s) return NULL;
+    g_source_set_callback(s, cb, args, g_free);
+    g_source_attach(s, NULL);
+    return s;
+}
+
+// Arm a single operator anchor for "today." `local_day_anchor` is the
+// per-recompute reference instant (typically `now` or a recent past
+// time clamped to today's midnight).
+static void arm_operator_anchor(anchor_slot_t* slot,
+                                const anchor_t* a,
+                                time_t now,
+                                time_t local_day_anchor) {
+    if (!anchors_is_enabled(a->id)) {
+        LOG("anchor '%s': disabled; not arming", a->id);
+        return;
+    }
+
+    if (a->kind == ANCHOR_KIND_OFFSET) {
+        time_t base = 0;
+        if (anchors_resolve_source(a->event_source, local_day_anchor, &base) != 0) {
+            LOG_WARN("anchor '%s': source '%s' unresolved; skipping",
+                     a->id, a->event_source);
+            return;
+        }
+        if (base == SOLAR_NO_EVENT) {
+            LOG("anchor '%s': source '%s' has no event today",
+                a->id, a->event_source);
+            return;
+        }
+        time_t when = base + (time_t)(a->offset_minutes * 60);
+        if (a->duration_minutes > 0) {
+            time_t end = when + (time_t)(a->duration_minutes * 60);
+            fire_state_args_t* sa = g_new(fire_state_args_t, 1);
+            snprintf(sa->event_id, sizeof sa->event_id, "%s", a->id);
+            sa->stateful = 1;
+            slot->start_timer = arm_one_shot(when, now, fire_state_true_cb, sa);
+            if (!slot->start_timer) g_free(sa);
+
+            fire_state_args_t* ea = g_new(fire_state_args_t, 1);
+            snprintf(ea->event_id, sizeof ea->event_id, "%s", a->id);
+            ea->stateful = 1;
+            slot->end_timer = arm_one_shot(end, now, fire_state_false_cb, ea);
+            if (!slot->end_timer) g_free(ea);
+        } else {
+            fire_state_args_t* pa = g_new(fire_state_args_t, 1);
+            snprintf(pa->event_id, sizeof pa->event_id, "%s", a->id);
+            pa->stateful = 0;
+            slot->start_timer = arm_one_shot(when, now, fire_pulse_cb, pa);
+            if (!slot->start_timer) g_free(pa);
+        }
+        return;
+    }
+
+    if (a->kind == ANCHOR_KIND_PAIRED) {
+        time_t s_base = 0, e_base = 0;
+        if (anchors_resolve_source(a->start_event, local_day_anchor, &s_base) != 0 ||
+            anchors_resolve_source(a->end_event,   local_day_anchor, &e_base) != 0) {
+            LOG_WARN("anchor '%s': paired source unresolved; skipping", a->id);
+            return;
+        }
+        if (s_base == SOLAR_NO_EVENT || e_base == SOLAR_NO_EVENT) {
+            LOG("anchor '%s': paired source missing today; skipping", a->id);
+            return;
+        }
+        time_t s_when = s_base + (time_t)(a->start_offset_minutes * 60);
+        time_t e_when = e_base + (time_t)(a->end_offset_minutes * 60);
+        if (e_when <= s_when) e_when += 86400;  // crosses local midnight
+
+        fire_state_args_t* sa = g_new(fire_state_args_t, 1);
+        snprintf(sa->event_id, sizeof sa->event_id, "%s", a->id);
+        sa->stateful = 1;
+        slot->start_timer = arm_one_shot(s_when, now, fire_state_true_cb, sa);
+        if (!slot->start_timer) g_free(sa);
+
+        fire_state_args_t* ea = g_new(fire_state_args_t, 1);
+        snprintf(ea->event_id, sizeof ea->event_id, "%s", a->id);
+        ea->stateful = 1;
+        slot->end_timer = arm_one_shot(e_when, now, fire_state_false_cb, ea);
+        if (!slot->end_timer) g_free(ea);
+        return;
+    }
+
+    if (a->kind == ANCHOR_KIND_THRESHOLD) {
+        // M6 scope: evaluate today only. Use local civil midnight as a
+        // proxy for local solar midnight (see header comment above).
+        struct tm tm_local;
+        localtime_r(&local_day_anchor, &tm_local);
+        tm_local.tm_hour = 12; tm_local.tm_min = 0; tm_local.tm_sec = 0;
+        tm_local.tm_isdst = -1;
+        time_t noon_today = mktime(&tm_local);
+
+        double frac = lunar_illumination(noon_today);
+        if (frac < 0.0) {
+            LOG_WARN("anchor '%s': lunar_illumination failed", a->id);
+            return;
+        }
+        int satisfied = 0;
+        switch (a->op) {
+            case ANCHOR_OP_GE: satisfied = (frac >= a->value); break;
+            case ANCHOR_OP_LE: satisfied = (frac <= a->value); break;
+            case ANCHOR_OP_GT: satisfied = (frac >  a->value); break;
+            case ANCHOR_OP_LT: satisfied = (frac <  a->value); break;
+        }
+        if (!satisfied) {
+            LOG("anchor '%s': threshold not met today (frac=%.3f)",
+                a->id, frac);
+            return;
+        }
+        // Fire instant: civil midnight of today (proxy for solar mid).
+        struct tm tm_mid;
+        localtime_r(&local_day_anchor, &tm_mid);
+        tm_mid.tm_hour = 0; tm_mid.tm_min = 0; tm_mid.tm_sec = 0;
+        tm_mid.tm_isdst = -1;
+        time_t fire_at = mktime(&tm_mid);
+
+        fire_state_args_t* pa = g_new(fire_state_args_t, 1);
+        snprintf(pa->event_id, sizeof pa->event_id, "%s", a->id);
+        pa->stateful = 0;
+        slot->start_timer = arm_one_shot(fire_at, now, fire_pulse_cb, pa);
+        if (!slot->start_timer) g_free(pa);
+        return;
+    }
+}
+
+// Tear down and rebuild every operator anchor's slot for today.
+static void recompute_anchors(time_t now) {
+    anchor_slots_cleanup();
+
+    size_t total = anchors_count();
+    if (total == 0) return;
+
+    anchor_slots = calloc(total, sizeof(anchor_slot_t));
+    if (!anchor_slots) {
+        LOG_WARN("recompute_anchors: calloc failed");
+        return;
+    }
+
+    for (size_t i = 0; i < total; i++) {
+        anchor_t a;
+        if (anchors_get_by_index(i, &a) != 0) continue;
+        if (a.built_in) continue;  // built-ins are armed by event_slots/etc.
+
+        anchor_slot_t* slot = &anchor_slots[anchor_slot_count];
+        snprintf(slot->event_id, sizeof slot->event_id, "%s", a.id);
+        arm_operator_anchor(slot, &a, now, now);
+        anchor_slot_count++;
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -477,6 +735,10 @@ static int recompute_today(void) {
         else if (slot->zenith_deg == SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT) src = &e_astro;
         arm_event_slot(slot, time_for_slot(slot, src, NULL), now);
     }
+
+    // Operator-defined anchors (M6). Tear-down and rebuild because the
+    // anchor list itself can have changed since the last recompute.
+    recompute_anchors(now);
     return 0;
 }
 
@@ -540,4 +802,5 @@ void timers_cleanup(void) {
         cancel_source(&phase_slots[i].timer);
     for (size_t i = 0; i < SEASON_SLOT_COUNT; i++)
         cancel_source(&season_slots[i].timer);
+    anchor_slots_cleanup();
 }

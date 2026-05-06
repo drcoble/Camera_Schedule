@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera Schedule — Anchors</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<main>
+  <div class="app-nav">
+    <h1>Camera Schedule</h1>
+    <nav aria-label="App sections">
+      <a href="schedule.html">Schedules</a>
+      <a href="anchors.html" aria-current="page">Anchors</a>
+      <a href="calendar.html">Calendar</a>
+      <a href="location.html">Location</a>
+      <a href="about.html">About</a>
+    </nav>
+  </div>
+
+  <!-- Anchor list -->
+  <section class="card" id="list-section">
+    <div class="crud-header">
+      <h2 id="list-heading">Operator anchors</h2>
+      <span class="crud-count" id="anchor-count" aria-live="polite"></span>
+      <button type="button" id="btn-new" class="btn-new">+ New anchor</button>
+    </div>
+    <p class="cap-note" id="cap-note" hidden>
+      Maximum 64 anchors reached. Delete one before adding another.
+    </p>
+
+    <table class="crud-table" id="anchor-table" aria-describedby="list-heading">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Kind</th>
+          <th scope="col">Source / detail</th>
+          <th scope="col" class="col-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="anchor-tbody">
+        <tr><td colspan="4" class="table-empty">Loading…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Create / Edit form -->
+  <section class="card" id="form-section" hidden>
+    <h2 id="form-heading">New anchor</h2>
+
+    <form id="anchor-form" novalidate>
+      <!-- Hidden field to track original id (for id-change detection) -->
+      <input type="hidden" id="original-id" value="">
+
+      <p class="form-section-title">Identity</p>
+
+      <div class="row-full">
+        <label for="f-id">ID</label>
+        <div>
+          <input type="text" id="f-id" name="id" required
+                 pattern="^[a-z0-9_]{1,32}$"
+                 placeholder="e.g. before_sunrise_30"
+                 autocomplete="off" spellcheck="false">
+          <span id="err-id" class="field-error" role="alert" hidden></span>
+          <span id="warn-id-change" class="id-change-warn" hidden>
+            Changing the ID will break any camera Action Rules bound to the old topic.
+          </span>
+        </div>
+      </div>
+
+      <div class="row-full">
+        <label for="f-name">Name</label>
+        <div>
+          <input type="text" id="f-name" name="name" required maxlength="64"
+                 placeholder="e.g. 30 min before sunrise">
+          <span id="err-name" class="field-error" role="alert" hidden></span>
+        </div>
+      </div>
+
+      <p class="form-section-title">Kind</p>
+
+      <fieldset class="kind-fieldset" id="kind-fieldset">
+        <legend class="sr-only">Anchor kind</legend>
+        <div class="kind-selector">
+          <label>
+            <input type="radio" name="kind" value="offset" checked>
+            Offset
+          </label>
+          <label>
+            <input type="radio" name="kind" value="paired">
+            Paired
+          </label>
+          <label>
+            <input type="radio" name="kind" value="threshold">
+            Threshold
+          </label>
+        </div>
+      </fieldset>
+
+      <!-- Offset fields -->
+      <div id="fields-offset">
+        <p class="form-section-title">Offset settings</p>
+
+        <div class="row-full">
+          <label for="f-event-source">Source event</label>
+          <div>
+            <select id="f-event-source" name="event_source">
+              <option value="">— loading sources —</option>
+            </select>
+            <span id="err-event-source" class="field-error" role="alert" hidden></span>
+          </div>
+        </div>
+
+        <div class="row-full">
+          <label for="f-offset-minutes">Offset (min)</label>
+          <div>
+            <input type="number" id="f-offset-minutes" name="offset_minutes"
+                   value="0" min="-1440" max="1440" step="1">
+            <span class="form-hint">Negative = before source, positive = after. Range −1440 to 1440.</span>
+            <span id="err-offset-minutes" class="field-error" role="alert" hidden></span>
+          </div>
+        </div>
+
+        <div class="row-full">
+          <label for="f-duration-minutes">Duration (min)</label>
+          <div>
+            <input type="number" id="f-duration-minutes" name="duration_minutes"
+                   value="0" min="0" max="1440" step="1">
+            <span class="form-hint">0 = momentary pulse. 1–1440 = stateful interval.</span>
+            <span id="err-duration-minutes" class="field-error" role="alert" hidden></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paired fields -->
+      <div id="fields-paired" hidden>
+        <p class="form-section-title">Paired interval settings</p>
+        <p class="form-hint">
+          Define a start event and an end event. The anchor fires at start and
+          holds high until end. Pairs that cross local midnight (e.g. sunset → sunrise) are valid.
+        </p>
+
+        <div class="row-full">
+          <label for="f-start-event">Start event</label>
+          <div>
+            <select id="f-start-event" name="start_event">
+              <option value="">— loading sources —</option>
+            </select>
+            <span id="err-start-event" class="field-error" role="alert" hidden></span>
+          </div>
+        </div>
+
+        <div class="row-full">
+          <label for="f-start-offset">Start offset (min)</label>
+          <div>
+            <input type="number" id="f-start-offset" name="start_offset_minutes"
+                   value="0" min="-1440" max="1440" step="1">
+          </div>
+        </div>
+
+        <div class="row-full">
+          <label for="f-end-event">End event</label>
+          <div>
+            <select id="f-end-event" name="end_event">
+              <option value="">— loading sources —</option>
+            </select>
+            <span id="err-end-event" class="field-error" role="alert" hidden></span>
+          </div>
+        </div>
+
+        <div class="row-full">
+          <label for="f-end-offset">End offset (min)</label>
+          <div>
+            <input type="number" id="f-end-offset" name="end_offset_minutes"
+                   value="0" min="-1440" max="1440" step="1">
+          </div>
+        </div>
+      </div>
+
+      <!-- Threshold fields -->
+      <div id="fields-threshold" hidden>
+        <p class="form-section-title">Threshold settings</p>
+        <p class="form-hint">
+          Fires at local solar midnight on each day in the look-ahead window
+          where the selected metric satisfies the condition.
+        </p>
+
+        <div class="row-full">
+          <label for="f-metric">Metric</label>
+          <div>
+            <select id="f-metric" name="metric">
+              <option value="moon_illumination">Moon illumination</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row-full">
+          <label for="f-op">Condition</label>
+          <div>
+            <select id="f-op" name="op">
+              <option value="ge">≥ (greater than or equal)</option>
+              <option value="le">≤ (less than or equal)</option>
+              <option value="gt">&gt; (greater than)</option>
+              <option value="lt">&lt; (less than)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row-full">
+          <label for="f-value">Value</label>
+          <div>
+            <input type="number" id="f-value" name="value"
+                   value="0.95" min="0" max="1" step="0.01">
+            <span class="form-hint">0.0 (new moon) to 1.0 (full moon).</span>
+            <span id="err-value" class="field-error" role="alert" hidden></span>
+          </div>
+        </div>
+      </div>
+
+      <p id="form-status" class="status" aria-live="polite"></p>
+
+      <div class="actions">
+        <button type="submit" id="btn-submit">Save anchor</button>
+        <button type="button" id="btn-cancel">Cancel</button>
+      </div>
+    </form>
+  </section>
+</main>
+<script src="js/anchors.js"></script>
+</body>
+</html>

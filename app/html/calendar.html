@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera Schedule — Calendar</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<main>
+  <div class="app-nav">
+    <h1>Camera Schedule</h1>
+    <nav aria-label="App sections">
+      <a href="schedule.html">Schedules</a>
+      <a href="anchors.html">Anchors</a>
+      <a href="calendar.html" aria-current="page">Calendar</a>
+      <a href="location.html">Location</a>
+      <a href="about.html">About</a>
+    </nav>
+  </div>
+
+  <!-- Calendar entry list -->
+  <section class="card" id="list-section">
+    <div class="crud-header">
+      <h2 id="list-heading">Calendar entries</h2>
+      <span class="crud-count" id="cal-count" aria-live="polite"></span>
+      <button type="button" id="btn-new">+ New entry</button>
+    </div>
+    <p class="cap-note" id="cap-note" hidden>
+      Maximum 64 calendar entries reached. Delete one before adding another.
+    </p>
+
+    <table class="crud-table" id="cal-table" aria-describedby="list-heading">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Kind</th>
+          <th scope="col">Date / time</th>
+          <th scope="col" class="col-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="cal-tbody">
+        <tr><td colspan="4" class="table-empty">Loading…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Create / Edit form -->
+  <section class="card" id="form-section" hidden>
+    <h2 id="form-heading">New calendar entry</h2>
+
+    <form id="cal-form" novalidate>
+      <input type="hidden" id="original-id" value="">
+
+      <p class="form-section-title">Identity</p>
+
+      <div class="row-full">
+        <label for="f-id">ID</label>
+        <div>
+          <input type="text" id="f-id" name="id" required
+                 pattern="^[a-z0-9_]{1,32}$"
+                 placeholder="e.g. thanksgiving"
+                 autocomplete="off" spellcheck="false">
+          <span id="err-id" class="field-error" role="alert" hidden></span>
+          <span id="warn-id-change" class="id-change-warn" hidden>
+            Changing the ID will break any camera Action Rules bound to the old topic.
+          </span>
+        </div>
+      </div>
+
+      <div class="row-full">
+        <label for="f-name">Name</label>
+        <div>
+          <input type="text" id="f-name" name="name" required maxlength="64"
+                 placeholder="e.g. Thanksgiving">
+          <span id="err-name" class="field-error" role="alert" hidden></span>
+        </div>
+      </div>
+
+      <p class="form-section-title">Kind</p>
+
+      <fieldset class="kind-fieldset" id="kind-fieldset">
+        <legend class="sr-only">Entry kind</legend>
+        <div class="kind-selector">
+          <label>
+            <input type="radio" name="kind" value="single_date" checked>
+            Single date
+          </label>
+          <label>
+            <input type="radio" name="kind" value="date_range">
+            Date range
+          </label>
+          <label>
+            <input type="radio" name="kind" value="annual">
+            Annual (recurring)
+          </label>
+        </div>
+      </fieldset>
+
+      <!-- Time mode -->
+      <p class="form-section-title">Time</p>
+      <div class="kind-selector" id="time-mode-selector">
+        <label>
+          <input type="radio" name="time_mode" value="all_day" checked>
+          All day
+        </label>
+        <label>
+          <input type="radio" name="time_mode" value="specific">
+          Specific time
+        </label>
+      </div>
+
+      <div id="fields-time-of-day" hidden>
+        <div class="row-full">
+          <label for="f-time-of-day">Time of day</label>
+          <div>
+            <input type="time" id="f-time-of-day" name="time_of_day" step="1"
+                   placeholder="HH:MM:SS">
+            <span class="form-hint">24-hour time, e.g. 20:00:00</span>
+            <span id="err-time-of-day" class="field-error" role="alert" hidden></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Date fields -->
+      <p class="form-section-title" id="date-section-title">Date</p>
+
+      <div class="row-full">
+        <label for="f-start-date" id="start-date-label">Date</label>
+        <div>
+          <input type="date" id="f-start-date" name="start_date" required>
+          <span class="form-hint" id="start-date-hint"></span>
+          <span id="err-start-date" class="field-error" role="alert" hidden></span>
+        </div>
+      </div>
+
+      <div id="fields-end-date" hidden>
+        <div class="row-full">
+          <label for="f-end-date">End date</label>
+          <div>
+            <input type="date" id="f-end-date" name="end_date">
+            <span class="form-hint">Must be on or after start date.</span>
+            <span id="err-end-date" class="field-error" role="alert" hidden></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <p class="form-section-title">Notes</p>
+
+      <div class="row-full">
+        <label for="f-notes">Notes</label>
+        <div>
+          <textarea id="f-notes" name="notes" maxlength="256"
+                    placeholder="Optional notes (max 256 chars)"></textarea>
+          <span id="err-notes" class="field-error" role="alert" hidden></span>
+        </div>
+      </div>
+
+      <p id="form-status" class="status" aria-live="polite"></p>
+
+      <div class="actions">
+        <button type="submit" id="btn-submit">Save entry</button>
+        <button type="button" id="btn-cancel">Cancel</button>
+      </div>
+    </form>
+  </section>
+</main>
+<script src="js/calendar.js"></script>
+</body>
+</html>

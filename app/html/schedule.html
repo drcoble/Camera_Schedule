@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera Schedule — Schedules</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<main>
+  <div class="app-nav">
+    <h1>Camera Schedule</h1>
+    <nav aria-label="App sections">
+      <a href="schedule.html" aria-current="page">Schedules</a>
+      <a href="anchors.html">Anchors</a>
+      <a href="calendar.html">Calendar</a>
+      <a href="location.html">Location</a>
+      <a href="about.html">About</a>
+    </nav>
+  </div>
+
+  <div class="search-bar">
+    <label for="search">Filter</label>
+    <input id="search" type="search" placeholder="Search by name…" autocomplete="off" aria-label="Filter schedules by name">
+  </div>
+
+  <div class="list-toolbar">
+    <button type="button" id="btn-refresh">Refresh</button>
+    <p id="page-status" class="status page-status" aria-live="polite"></p>
+  </div>
+
+  <!-- Solar events -->
+  <section class="schedule-section" id="sec-solar" aria-labelledby="hdr-solar">
+    <button type="button" class="section-header" id="hdr-solar"
+            aria-expanded="true" aria-controls="body-solar">
+      <span>Solar events</span>
+      <span class="section-count" id="count-solar" aria-live="polite"></span>
+      <svg class="section-chevron" viewBox="0 0 16 16" aria-hidden="true">
+        <polyline points="3 6 8 11 13 6"/>
+      </svg>
+    </button>
+    <div class="section-body" id="body-solar" role="list"></div>
+  </section>
+
+  <!-- Lunar events -->
+  <section class="schedule-section" id="sec-lunar" aria-labelledby="hdr-lunar">
+    <button type="button" class="section-header" id="hdr-lunar"
+            aria-expanded="true" aria-controls="body-lunar">
+      <span>Lunar events</span>
+      <span class="section-count" id="count-lunar" aria-live="polite"></span>
+      <svg class="section-chevron" viewBox="0 0 16 16" aria-hidden="true">
+        <polyline points="3 6 8 11 13 6"/>
+      </svg>
+    </button>
+    <div class="section-body" id="body-lunar" role="list"></div>
+  </section>
+
+  <!-- Seasonal events -->
+  <section class="schedule-section" id="sec-seasonal" aria-labelledby="hdr-seasonal">
+    <button type="button" class="section-header" id="hdr-seasonal"
+            aria-expanded="true" aria-controls="body-seasonal">
+      <span>Seasonal events</span>
+      <span class="section-count" id="count-seasonal" aria-live="polite"></span>
+      <svg class="section-chevron" viewBox="0 0 16 16" aria-hidden="true">
+        <polyline points="3 6 8 11 13 6"/>
+      </svg>
+    </button>
+    <div class="section-body" id="body-seasonal" role="list"></div>
+  </section>
+
+  <!-- User anchors -->
+  <section class="schedule-section" id="sec-anchor" aria-labelledby="hdr-anchor">
+    <button type="button" class="section-header" id="hdr-anchor"
+            aria-expanded="true" aria-controls="body-anchor">
+      <span>User anchors</span>
+      <span class="section-count" id="count-anchor" aria-live="polite"></span>
+      <svg class="section-chevron" viewBox="0 0 16 16" aria-hidden="true">
+        <polyline points="3 6 8 11 13 6"/>
+      </svg>
+    </button>
+    <div class="section-body" id="body-anchor" role="list"></div>
+  </section>
+
+  <!-- Calendar entries -->
+  <section class="schedule-section" id="sec-calendar" aria-labelledby="hdr-calendar">
+    <button type="button" class="section-header" id="hdr-calendar"
+            aria-expanded="true" aria-controls="body-calendar">
+      <span>Calendar entries</span>
+      <span class="section-count" id="count-calendar" aria-live="polite"></span>
+      <svg class="section-chevron" viewBox="0 0 16 16" aria-hidden="true">
+        <polyline points="3 6 8 11 13 6"/>
+      </svg>
+    </button>
+    <div class="section-body" id="body-calendar" role="list"></div>
+  </section>
+</main>
+<script src="js/schedule.js"></script>
+</body>
+</html>

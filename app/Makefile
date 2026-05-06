@@ -18,6 +18,9 @@
 PROG  = camera_schedule
 OBJS  = src/main.c \
         src/timers.c \
+        src/anchors.c \
+        src/calendar.c \
+        src/persistence.c \
         src/astro/solar.c \
         src/astro/lunar.c \
         src/astro/seasonal.c \
@@ -128,47 +131,28 @@ $(TEST_SEASONAL_BIN): $(APP_DIR)/src/astro/seasonal.c \
 	  $(TEST_HOST_DIR)/test_seasonal.c \
 	  -lm -o $(TEST_SEASONAL_BIN)
 
-# test_anchors links against lunar.c (for lunar_illumination in §2),
-# plus anchors.c and calendar.c (Phase 2 implementation, not yet written).
-# All three astro modules are included because anchors.c calls into them
-# when resolving built-in event sources. The rule will fail to build until
-# Phase 2 delivers anchors.c and calendar.c — that is expected.
-#
-# Makefile-merge note for integration: the staff engineer's Makefile diff
-# adds anchors.c and calendar.c to the OBJS list for the in-container
-# build. This test-target diff adds them to the test-anchors link line.
-# The two diffs touch different variables and do not conflict, but the
-# merge author should verify OBJS and the test link line are consistent.
+# Host-side anchor + calendar fixtures are pure C and link only against
+# lunar.c (for lunar_illumination in test_anchors §2). They reference
+# anchors.h / calendar.h for type and constant checks but make no calls
+# into anchors.c / calendar.c — those are framework-aware modules that
+# pull in GLib/AXEvent and don't compile on the build host. Integration-
+# level assertions that need the real anchors.c / calendar.c are gated
+# behind /* TODO at integration */ comments inside the fixtures.
 $(TEST_ANCHORS_BIN): $(APP_DIR)/src/anchors.h \
                      $(APP_DIR)/src/calendar.h \
                      $(APP_DIR)/src/astro/lunar.h \
-                     $(APP_DIR)/src/astro/solar.h \
-                     $(APP_DIR)/src/astro/seasonal.h \
-                     $(APP_DIR)/src/anchors.c \
-                     $(APP_DIR)/src/calendar.c \
                      $(APP_DIR)/src/astro/lunar.c \
-                     $(APP_DIR)/src/astro/solar.c \
-                     $(APP_DIR)/src/astro/seasonal.c \
                      $(TEST_HOST_DIR)/test_anchors.c
 	@mkdir -p $(TEST_HOST_DIR)/build
 	$(CC) $(TEST_CFLAGS) \
-	  $(APP_DIR)/src/anchors.c \
-	  $(APP_DIR)/src/calendar.c \
 	  $(APP_DIR)/src/astro/lunar.c \
-	  $(APP_DIR)/src/astro/solar.c \
-	  $(APP_DIR)/src/astro/seasonal.c \
 	  $(TEST_HOST_DIR)/test_anchors.c \
 	  -lm -o $(TEST_ANCHORS_BIN)
 
-# test_calendar links against calendar.c only (no astro dependency in
-# the calendar module's public surface). Will fail to build until Phase 2
-# delivers calendar.c.
 $(TEST_CALENDAR_BIN): $(APP_DIR)/src/calendar.h \
-                      $(APP_DIR)/src/calendar.c \
                       $(TEST_HOST_DIR)/test_calendar.c
 	@mkdir -p $(TEST_HOST_DIR)/build
 	$(CC) $(TEST_CFLAGS) \
-	  $(APP_DIR)/src/calendar.c \
 	  $(TEST_HOST_DIR)/test_calendar.c \
 	  -lm -o $(TEST_CALENDAR_BIN)
 
