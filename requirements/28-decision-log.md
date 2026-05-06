@@ -485,3 +485,42 @@ the schema-defined path and remove the schema-discovery CI job.
 `SDK manifest-schema discovery`),
 [21-platform-compatibility.md](./21-platform-compatibility.md),
 [24-open-questions.md](./24-open-questions.md) OQ-12.
+
+---
+
+## DL-17 — UI rounds lat/lon read-back to microdegree precision
+
+Date: 2026-05-05  |  Status: accepted
+
+**Decision.** The configuration UI's lat/lon inputs use `step="any"` and
+display read-back values rounded to 6 decimal places (microdegree
+precision). The camera's stored value is unchanged unless the operator
+explicitly saves a new value through the form. Internal computation
+continues to use IEEE-754 `double` end-to-end; the rounding is purely
+a UI-side display behavior. See FR-1.6.
+
+**Rationale.** During the M2 lab install the location form rejected the
+value the camera's geolocation service returned. The camera reports
+lat/lon at higher precision than the form's previous `step="0.000001"`
+constraint allowed, so the HTML5 step validator marked the field
+invalid and `parseFloat`'d submissions failed. Microdegree precision
+(~11 cm at the equator) is finer than any camera GPS hardware delivers
+or any sunrise/sunset computation cares about, so a stricter step
+constraint produces no real benefit; a free `step="any"` plus
+display-time rounding gives the operator a clean number to read while
+preserving the camera's stored value verbatim until they explicitly
+change it.
+
+**Removed / changed.**
+- `app/html/location.html` — both lat and lon inputs change from
+  `step="0.000001"` to `step="any"`.
+- `app/html/js/location.js` — read-back values are rendered with
+  `.toFixed(6)` before being placed in the form.
+- New FR-1.6 in [01-geo-location.md](./01-geo-location.md) codifies
+  the behavior.
+- No change to `app/src/main.c`, `app/src/timers.c`, or
+  `app/src/astro/solar.c` — rounding stays UI-only per the
+  "on read only" scope chosen during requirements review.
+
+**References.** [01-geo-location.md](./01-geo-location.md) FR-1.6,
+[11-configuration-ui.md](./11-configuration-ui.md).

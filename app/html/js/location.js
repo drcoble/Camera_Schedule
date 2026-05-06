@@ -11,6 +11,15 @@
   var status   = document.getElementById("status");
   var reload   = document.getElementById("reload");
 
+  // FR-1.6 / DL-17: display read-back values rounded to microdegree
+  // precision (~11 cm at the equator) so the operator sees a clean
+  // number and the form's numeric input doesn't reject a high-
+  // precision value the camera happens to have stored. The camera's
+  // stored value is left alone unless the operator explicitly saves.
+  function formatForDisplay(n) {
+    return Number(n).toFixed(6);
+  }
+
   function show(message, kind) {
     status.textContent = message;
     status.className = "status" + (kind ? " " + kind : "");
@@ -24,8 +33,8 @@
         return resp.json();
       })
       .then(function (data) {
-        latInput.value = data.lat;
-        lonInput.value = data.lon;
+        latInput.value = formatForDisplay(data.lat);
+        lonInput.value = formatForDisplay(data.lon);
         show("Loaded from camera.");
       })
       .catch(function (err) {
@@ -57,8 +66,8 @@
         return resp.json();
       })
       .then(function (data) {
-        latInput.value = data.lat;
-        lonInput.value = data.lon;
+        latInput.value = formatForDisplay(data.lat);
+        lonInput.value = formatForDisplay(data.lon);
         show("Saved. Sunrise / sunset will recompute now.", "success");
       })
       .catch(function (err) {

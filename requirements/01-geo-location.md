@@ -30,6 +30,15 @@ must be explicit and observable.
   SHALL be normalized to decimal degrees on read.
 - **FR-1.5** A change in detected lat/lon (vs. the value used for the last
   successful recompute) SHALL trigger an immediate recompute (see FR-10).
+- **FR-1.6** The configuration UI (FR-11) SHALL accept and display lat/lon
+  values to **microdegree precision (6 decimal places, ~11 cm at the
+  equator)**. On read-back from the camera's geolocation service, values
+  with more decimals SHALL be **rounded to the nearest microdegree**
+  before being shown in the form. The HTML5 numeric-input `step` attribute
+  SHALL be `any` so the form does not reject the camera's stored value
+  for failing a step constraint when the camera reports finer precision
+  than the UI's display step. Internal computation continues to use IEEE-754
+  `double`; rounding is a UI-only behavior. See [DL-17](./28-decision-log.md).
 
 ## Notes
 
