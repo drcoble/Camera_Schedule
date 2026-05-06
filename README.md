@@ -23,7 +23,10 @@ not target ACAP v12.
 ## Scope at a glance
 
 **In scope**
-- Run as a signed ACAP application installed directly on Axis cameras.
+- Run as an ACAP application installed directly on Axis cameras.
+  Artifacts are unsigned for the `v1.0.0-beta` release; signing is
+  reopened post-beta when the project's Axis Application Signing key
+  is in hand (see [DL-23](./requirements/28-decision-log.md)).
 - Read the camera's configured geo-location and timezone from the camera itself.
 - Compute solar, lunar, and seasonal event times for the camera's location/date.
 - Allow the operator to define named **schedule anchors** combining an event,
@@ -34,8 +37,13 @@ not target ACAP v12.
   change.
 - Target **AXIS OS 11.11+ and AXIS OS 12.x** from a single mainline.
   Two `.eap` artifacts: armv7hf (Artpec-7) and aarch64 (Artpec-8+).
-- Conform to ACAP v12 sandboxing, signing, dynamic-user, and D-Bus
+  The aarch64 build is verified by CI but not lab-tested for
+  `v1.0.0-beta` — Artpec-8+ hardware smoke is a gate on promoting
+  to `v1.0.0` GA (DL-23).
+- Conform to ACAP v12 sandboxing, dynamic-user, and D-Bus
   credential requirements uniformly across both supported OS lines.
+  Application signing is the long-term posture (NFR-5/BR-7) but
+  deferred for the beta tag.
 
 **Out of scope**
 - Bundled holiday/locale database (Easter, Ramadan, etc.). Calendar input is
@@ -53,7 +61,10 @@ not target ACAP v12.
 
 The milestone-driven implementation plan is in
 [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) — nine milestones (M0…M8)
-each ending in a tagged release.
+each ending in a tagged release. M0–M7 are shipped through `v0.7.0`;
+M8 produces `v1.0.0-beta`. Promotion from beta to GA (`v1.0.0`) is
+gated on Application Signing CI integration and Artpec-8+ hardware
+smoke per [DL-23](./requirements/28-decision-log.md).
 
 ## Requirements layout
 

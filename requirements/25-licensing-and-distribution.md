@@ -80,9 +80,11 @@ contribution model, public release channel, and third-party attribution.
 ## Public release channel
 
 - **DR-12 — Tagged releases.** Releases SHALL be cut as annotated git tags
-  (`vMAJOR.MINOR.PATCH`) and SHALL be accompanied by a public release page
-  containing:
-  - the signed armv7hf and aarch64 `.eap` artifacts,
+  (`vMAJOR.MINOR.PATCH`, with semver pre-release suffix where applicable —
+  e.g. `v1.0.0-beta` per [DL-23](./28-decision-log.md)) and SHALL be
+  accompanied by a public release page containing:
+  - the armv7hf and aarch64 `.eap` artifacts (signed per BR-7 once the
+    signing key is in hand; unsigned for `v1.0.0-beta` per DL-23),
   - SHA-256 checksums of each artifact,
   - the `THIRD_PARTY_LICENSES.md` bundle (DR-10),
   - a CHANGELOG entry,

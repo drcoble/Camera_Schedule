@@ -115,13 +115,16 @@ shape is documented in `app/src/M7_API_CONTRACT.md §1.3-1.4`;
 host fixture `test_export_import.c` exercises round-trip identity
 plus 10 reject cases (12/12 pass).
 
-Next milestone is **M8 — Release readiness** per
-[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). M8 picks up signed
-artifacts (DL-11), license-audit CI gate (NFR-6), reproducible-build
-verification, the Artpec-8+ aarch64 lab target acquisition,
+Next milestone is **M8 — Beta release readiness** per
+[`IMPLEMENTATION.md`](./IMPLEMENTATION.md), tagged as `v1.0.0-beta`
+per [DL-23](./requirements/28-decision-log.md). M8 scope is
+license-audit CI gate (NFR-6), reproducible-build verification (BR-6),
 `CONTRIBUTING.md`/`SECURITY.md`/`CHANGELOG.md` polish, and a public
-release page with signed `.eap` files. Don't tag v0.4.0 or v0.5.0
-until both calendar gates above have produced observable fires
+release page with **unsigned** `.eap` files for both armv7hf and
+aarch64. Application Signing (formerly DL-11) and Artpec-8+ hardware
+verification are deferred — both are gates on promoting from
+`v1.0.0-beta` to `v1.0.0` GA, not on M8 itself. Don't tag v0.4.0 or
+v0.5.0 until both calendar gates above have produced observable fires
 from bound action rules. The 24-hour soak harness
 (`app/test/lab/soak_24h.sh`) is the post-M7-tag gating step that
 samples `/state.rss_kb`, AppArmor `system_log.cgi`, and recompute

@@ -29,6 +29,10 @@ Cross-cutting constraints on size, performance, security, and licensing.
   aarch64) SHALL be signed with the project's Axis Application Signing
   key prior to release. Signing is becoming mandatory in upcoming AXIS
   OS releases; shipping signed from day one future-proofs the artifact.
+  *Amended by [DL-23](./28-decision-log.md): signing is deferred for
+  the `v1.0.0-beta` tag and reopened post-beta when the signing key
+  is in hand. The build matrix continues to produce unsigned `.eap`
+  files in the meantime.*
 
 - **NFR-6 — License posture.** Bundled third-party code SHALL be compatible
   with the project's open-source license

@@ -75,3 +75,6 @@ are unsupported (see [DL-15](./28-decision-log.md)).
   in [DL-15](./28-decision-log.md).
 - ACAP v12 mandatory signing is in flight at Axis. Shipping signed from
   day one ([NFR-5](./20-non-functional.md)) future-proofs the artifact.
+  Signing is deferred for `v1.0.0-beta`
+  ([DL-23](./28-decision-log.md)); the build matrix still produces
+  both armv7hf and aarch64 `.eap` files in the meantime.

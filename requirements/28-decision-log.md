@@ -283,7 +283,7 @@ duplicate functionality the OS already provides.
 
 ## DL-11 — Signing workflow: GitHub Actions on tagged main
 
-Date: 2026-05-05  |  Status: accepted
+Date: 2026-05-05  |  Status: superseded by DL-23
 
 **Decision.** Application signing follows
 [BR-7](./22-build-and-packaging.md):
@@ -757,3 +757,89 @@ pre-flight check.
 **References.** [M7_API_CONTRACT.md §1.1](../app/src/M7_API_CONTRACT.md),
 [ACAP.c:691](../app/src/acap/ACAP.c),
 [24-open-questions.md](./24-open-questions.md) OQ-16.
+
+---
+
+## DL-23 — v1.0 release scoped as `v1.0.0-beta`: drop signing + Artpec-8+ lab gate from M8 acceptance
+
+Date: 2026-05-06  |  Status: accepted
+
+**Decision.** The first 1.x release tag is `v1.0.0-beta` (semver
+pre-release suffix), not `v1.0.0`. M8's acceptance gate is
+correspondingly trimmed:
+
+- **Signing is deferred.** The release pipeline SHALL continue to
+  produce both unsigned `.eap` artifacts (armv7hf + aarch64) via the
+  same CI matrix that ships v0.7.0. Axis Application Signing
+  integration (formerly required by **BR-7** and **NFR-5**) moves
+  out of M8 scope and into a future milestone, to be reopened when
+  the signing key is in hand or when ACAP v12 makes signing
+  mandatory in shipping firmware (whichever comes first).
+- **Artpec-8+ (aarch64) lab smoke is dropped** from M8 acceptance.
+  The aarch64 `.eap` SHALL still be built by CI on every change
+  (the build matrix is unchanged) and SHALL still be attached to
+  the v1.0.0-beta release page, but its "smoke-test on real
+  Artpec-8+ hardware" line item is deferred until an Artpec-8+ unit
+  joins the lab. Both lab cameras remain Artpec-7 / armv7hf.
+- **Public release page deliverable kept**, just unsigned. v1.0.0-beta
+  ships GitHub Releases with both `.eap` files, SHA-256 checksums,
+  `THIRD_PARTY_LICENSES.md`, `CHANGELOG.md`. Operators downloading
+  the unsigned artifact accept that uninstalling and reinstalling
+  may require additional approval steps once Axis enforces signing.
+- **Other M8 deliverables stand**: license-audit CI gate (NFR-6,
+  DR-11), reproducible-build verification (BR-6),
+  `CONTRIBUTING.md` / `SECURITY.md` / `CHANGELOG.md` polish, full
+  acceptance suite from `23-verification.md` on the two armv7hf
+  lab cameras.
+
+**Rationale.** Three constraints converged. (1) The Axis Application
+Signing key has not been obtained; bringing it in is a procurement
+step external to the codebase, with no fixed timeline. (2) The lab
+has no Artpec-8+ hardware; CI builds the aarch64 artifact and the
+unit tests are arch-independent (host-side `make test` covers all
+algorithmic correctness; the only thing missing is install-and-run
+on real aarch64 silicon). (3) The work that is feature-complete and
+already lab-verified (M0-M7) plus the M8 polish that doesn't depend
+on (1) or (2) constitutes a usable beta — gating it on procurement
++ hardware acquisition would freeze a release that already provides
+operator value. Tagging as `v1.0.0-beta` signals "API surface
+stabilized, production-ready on armv7hf, awaiting signing key and
+aarch64 hardware verification before promotion to `v1.0.0`."
+
+**Removed / changed.**
+- **DL-11** marked superseded. Signing workflow as described still
+  applies *when implemented* — the secret-store / tag-only / no-PR
+  pattern is preserved for the future signing rollout — but is no
+  longer a v1.0 acceptance gate.
+- **NFR-5** amended: signing remains the long-term release posture
+  but is no longer mandatory for v1.0.0-beta. The "shipping signed
+  from day one" stance is renumbered as a post-beta goal.
+- **BR-7** amended: signing pipeline language stays in the spec as
+  the target end state; the SHALL clause is downgraded to MAY for
+  v1.0.0-beta.
+- **DR-12** amended: tagged-release artifacts MAY be unsigned for
+  v1.0.0-beta; SHALL be signed for v1.0.0 GA and later.
+- **PR-3 / PR-6** unchanged: the build matrix still produces both
+  artifacts; aarch64 lab smoke moves from "required for v1" to a
+  post-beta gating step.
+- **23-verification.md** acceptance check #1 amended: "two signed
+  `.eap` files" → "two `.eap` files (unsigned for v1.0.0-beta)".
+- **23-verification.md** "aarch64 coverage requires Artpec-8+ unit
+  before release" amended to "before promotion to v1.0.0 GA".
+- **IMPLEMENTATION.md M8** rewritten to drop signing + aarch64
+  lab-test from deliverables; tag changes from `v1.0.0` to
+  `v1.0.0-beta`. The signing CI integration and Artpec-8+
+  acquisition are added to "deliberately deferred past v1.0".
+
+**Tag-naming convention.** `v1.0.0-beta` is the canonical
+semver-2.0 pre-release suffix and sorts correctly before
+`v1.0.0` in `git tag --sort=v:refname` (with `--sort=-v:refname`
+git treats `1.0.0` as newer than `1.0.0-beta`, which is what we
+want).
+
+**References.** [22-build-and-packaging.md](./22-build-and-packaging.md)
+BR-7, [21-platform-compatibility.md](./21-platform-compatibility.md)
+PR-3 / PR-6, [20-non-functional.md](./20-non-functional.md) NFR-5,
+[25-licensing-and-distribution.md](./25-licensing-and-distribution.md)
+DR-12, [23-verification.md](./23-verification.md),
+[../IMPLEMENTATION.md](../IMPLEMENTATION.md) M8, DL-11.

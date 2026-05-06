@@ -14,8 +14,11 @@ both supported integration targets under the
   lower-bound OS-11.11+ integration target.
 
 Both cameras run armv7hf, so they exercise the same `.eap` artifact;
-aarch64 coverage requires bringing in an Artpec-8+ unit before release
-([PR-6](./21-platform-compatibility.md)).
+aarch64 coverage requires bringing in an Artpec-8+ unit before
+promotion from `v1.0.0-beta` to `v1.0.0` GA
+([PR-6](./21-platform-compatibility.md),
+[DL-23](./28-decision-log.md)). The aarch64 `.eap` is still built
+on every change by CI — only its hardware smoke test is deferred.
 
 Camera addresses and root credentials are tracked in the developer's
 local Claude memory and SHALL NOT be checked into the public repository
@@ -27,9 +30,11 @@ credentials via environment variables, never as in-tree literals.
 
 ## Acceptance checks
 
-1. **Build.** `make build-armv7hf build-aarch64` produces two signed
-   `.eap` files under the project's CI image. Each is ≤ 5 MB
-   ([NFR-1](./20-non-functional.md)).
+1. **Build.** `make build-armv7hf build-aarch64` produces two `.eap`
+   files under the project's CI image. Each is ≤ 5 MB
+   ([NFR-1](./20-non-functional.md)). Artifacts are unsigned for
+   the `v1.0.0-beta` tag per [DL-23](./28-decision-log.md); signing
+   is reopened post-beta.
 
 2. **Install on device.**
    - `eap-install.sh install && eap-install.sh start` succeeds on the

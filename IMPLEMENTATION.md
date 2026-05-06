@@ -297,46 +297,56 @@ field-debuggable logs, configuration export/import.
 
 ---
 
-## M8 — Release readiness (release v1.0.0)
+## M8 — Beta release readiness (release v1.0.0-beta)
 
-**Goal.** First mature release: signed artifacts, public CI, license
-audit, aarch64 verified.
+**Goal.** First public 1.x release: feature-complete on armv7hf,
+public CI, license audit, reproducible builds, polished docs. Signing
+and Artpec-8+ hardware verification are deferred to a post-beta
+milestone per [DL-23](./requirements/28-decision-log.md).
 
 **Deliverables.**
 
-- Real Axis Application Signing wired into CI per
-  [DL-11](./requirements/28-decision-log.md). Signing key in GitHub
-  Actions secrets; signing runs only on tag push to protected `main`.
 - License-audit step in CI that fails on unapproved bundled licenses
   ([NFR-6](./requirements/20-non-functional.md)).
 - Reproducible build verification: clean checkout → identical SHA-256
-  on `.eap` artifacts (modulo signature).
+  on `.eap` artifacts. (No signature to mod-out, since signing is
+  deferred per DL-23.)
 - Documentation: `CONTRIBUTING.md` filled in (DCO, build steps, PR
-  workflow); `SECURITY.md` describes private disclosure and key
-  rotation cadence; `CHANGELOG.md` covers v0.1 → v1.0.
-- An **Artpec-8+ camera** is acquired and added to the lab
-  ([PR-6](./requirements/21-platform-compatibility.md)). The
-  `aarch64` `.eap` is smoke-tested on it.
-- Release page on GitHub: signed `.eap` × 2, SHA-256 checksums,
-  `THIRD_PARTY_LICENSES.md`, `CHANGELOG.md`.
+  workflow); `SECURITY.md` describes the private disclosure channel;
+  `CHANGELOG.md` covers v0.1 → v1.0.0-beta.
+- Release page on GitHub: **unsigned** `.eap` × 2 (armv7hf + aarch64),
+  SHA-256 checksums, `THIRD_PARTY_LICENSES.md`, `CHANGELOG.md`. The
+  release page notes the beta status and the deferred-signing posture.
 
 **Tests.**
 
 - Full acceptance suite from
   [`23-verification.md`](./requirements/23-verification.md) passes
-  end-to-end on all three target cameras (OS 12 armv7hf, OS 11.11+
-  armv7hf, OS 12 aarch64).
+  end-to-end on the two armv7hf lab cameras (OS 12.10.61 and OS
+  11.11.192). aarch64 `.eap` builds in CI; hardware smoke is
+  deferred to post-beta per DL-23.
 - License-audit CI step rejects a PR that introduces an LGPL or
   GPL-licensed dependency.
 
-**Exit.** Tag `v1.0.0`. Announce.
+**Exit.** Tag `v1.0.0-beta`. Announce.
 
 ---
 
-## What's deliberately deferred past v1.0
+## What's deliberately deferred past v1.0.0-beta
 
-These are noted in the requirements but not in the v1 critical path:
+These are noted in the requirements but not in the v1.0.0-beta
+critical path:
 
+- **Axis Application Signing in CI** — formerly DL-11/BR-7/NFR-5;
+  reopened post-beta when the signing key is in hand or when ACAP v12
+  enforces signing in shipping firmware. Released-promoted
+  `v1.0.0` (no `-beta` suffix) is gated on this work landing.
+  ([DL-23](./requirements/28-decision-log.md))
+- **Artpec-8+ (aarch64) lab smoke** — the build matrix continues to
+  produce the aarch64 `.eap` and CI verifies it builds cleanly, but
+  hardware smoke-test on real Artpec-8+ silicon waits for hardware
+  acquisition. Promotion to `v1.0.0` GA is gated on this.
+  ([DL-23](./requirements/28-decision-log.md))
 - Map-based location picker (re-evaluate after v1; would require
   bundling Leaflet + a tile fallback strategy).
 - Path B — programmatically inject VAPIX action rules

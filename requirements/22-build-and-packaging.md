@@ -70,6 +70,10 @@ Implementation language, third-party-code policy, and CI obligations.
   builds MAY skip signing. Signing keys SHALL be held in a CI secrets
   store (GitHub Actions secret); signing SHALL only occur on tagged
   releases from the protected `main` branch.
+  *Amended by [DL-23](./28-decision-log.md): the SHALL clause is
+  downgraded to MAY for the `v1.0.0-beta` tag. Signing is reopened
+  post-beta when the key is in hand. The release pipeline still
+  produces both unsigned `.eap` artifacts in the meantime.*
 
 - **BR-8 — Public release artifacts.** Tagged releases SHALL publish the
   signed `armv7hf` and `aarch64` `.eap` files plus their SHA-256
