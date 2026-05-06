@@ -643,3 +643,69 @@ guaranteed accurate).
 [FR-3.7](./03-solar-events.md) (sibling ±60 s budget),
 [seasonal.c](../app/src/astro/seasonal.c),
 [test_seasonal.c](../app/test/host/test_seasonal.c).
+
+---
+
+## DL-20 — Export/import atomicity check deferred to manual lab step
+
+Date: 2026-05-06  |  Status: accepted
+
+**Decision.** The host fixture `app/test/host/test_export_import.c`
+does NOT simulate mid-write EIO in automated tests. The atomicity
+guarantee from FR-12.1 (write-temp + fsync + parse-back + schema-validate
++ rename) is verified by a manual lab step documented in `docs/soak.md §3`.
+
+**Rationale.** Host-side EIO injection requires intercepting the C
+`write()` syscall (typically via `LD_PRELOAD` or kernel fault injection).
+Neither mechanism is available in a pure-C host fixture that links only
+against cJSON. Introducing a test framework (criterion, cmocka, etc.) or
+a build-system dependency on `LD_PRELOAD` fixtures would add complexity
+disproportionate to the verification value, since `persistence.c`'s
+atomic-write helper is already unit-exercised through the M6 anchors and
+calendar fixtures (which call into the same helper). The soak's filesystem
+power-cycle test provides direct hardware evidence.
+
+**Removed / changed.**
+- `test_export_import.c §4` is documented as an informational-only note,
+  not an executable assertion.
+
+**References.** [FR-12.1](./12-configuration-persistence.md),
+[docs/soak.md](../docs/soak.md),
+[test_export_import.c](../app/test/host/test_export_import.c).
+
+---
+
+## DL-21 — OQ-15: RSS of camera_schedule in soak harness via /status.rss_kb
+
+Date: 2026-05-06  |  Status: accepted
+
+**Decision.** The SSE SHALL add a `rss_kb` integer field to the
+`GET /status` JSON response (§1.1 of M7_API_CONTRACT.md). The field is
+populated by reading `/proc/self/status` inside the status endpoint
+handler and parsing the `VmRSS` line. This is the RSS sampling path for
+the M7 soak harness.
+
+**Rationale.** The soak harness considered SSH as an alternative (`ssh
+root@camera 'cat /proc/<pid>/status'`), but SSH is typically disabled by
+default on Axis firmware (BatchMode SSH to the lab cameras was not
+verified at M7 STE time due to environment constraints; the harness was
+written to probe and fall through rather than assume). The `system_log.cgi`
+endpoint and VAPIX `param.cgi` expose neither per-process RSS nor a
+mechanism to run arbitrary commands. Polling the existing `/status`
+endpoint is the cleanest read-only path that works without operator
+configuration changes. Adding `rss_kb` costs ~3 lines of C in the status
+handler (open `/proc/self/status`, scan for `VmRSS`, close). Operators
+and fleet tools may also use the field to diagnose in-the-field memory
+concerns.
+
+**Removed / changed.**
+- `GET /status` response gains an optional `rss_kb` field (integer, kB).
+  Absent or 0 means the platform could not read VmRSS (e.g. sandboxed
+  `/proc` access denied), which is non-fatal for the soak harness.
+- `M7_API_CONTRACT.md §1.1` should be updated by the SSE to document
+  the `rss_kb` field in the status envelope.
+- OQ-15 resolved.
+
+**References.** [M7_API_CONTRACT.md §1.1](../app/src/M7_API_CONTRACT.md),
+[docs/soak.md](../docs/soak.md),
+[24-open-questions.md](./24-open-questions.md) OQ-15.

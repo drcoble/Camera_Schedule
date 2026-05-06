@@ -48,3 +48,13 @@ than amending this list in place.
   `v1.8.0` (verified by inspecting the schemas bundled in
   `axisecp/acap-native-sdk:12.6.0`). Field dropped from the manifest;
   PR-1 amended. See [DL-16](./28-decision-log.md).
+
+## Open
+
+- **OQ-15** — RSS of `camera_schedule` on the OS 12 lab camera: what is
+  the cleanest read-only sampling path for the M7 soak harness? SSH is
+  disabled by default on shipping Axis firmware (probed during M7 STE
+  work). The soak harness (`app/test/lab/soak_common.sh`) tries SSH
+  first, then falls back to a `rss_kb` field in `GET /status`. The SSE
+  should expose `rss_kb` (VmRSS in kB from `/proc/self/status`) in the
+  status endpoint response. See [DL-21](./28-decision-log.md).
