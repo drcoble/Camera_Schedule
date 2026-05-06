@@ -8,6 +8,18 @@ catalogues every third-party file or library bundled into the released
 separate `NOTICE` file — this document is the canonical attribution
 surface.
 
+The license-audit CI step (`.github/workflows/license-audit.yml`)
+walks the bundled tree on every push and PR and fails the build if a
+file's detected SPDX identifier falls off the
+[approved-licenses.txt](./approved-licenses.txt) allowlist or if a
+vendored file isn't referenced in the inventory below
+([NFR-6](./requirements/20-non-functional.md),
+[DR-11](./requirements/25-licensing-and-distribution.md),
+[DL-25](./requirements/28-decision-log.md)). To add a new bundled
+component: append an entry below, register its SPDX id in
+`app/scripts/license_audit.py` (`VENDORED_FILES`), and confirm the
+license is on the allowlist.
+
 ---
 
 ## Vendored from Timelapse2

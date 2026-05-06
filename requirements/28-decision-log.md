@@ -904,3 +904,70 @@ policy).
 [../CONTRIBUTING.md](../CONTRIBUTING.md),
 [../CHANGELOG.md](../CHANGELOG.md),
 [../IMPLEMENTATION.md](../IMPLEMENTATION.md) M8.
+
+---
+
+## DL-25 — License-audit gate uses an in-tree Python script + SPDX header scan
+
+Date: 2026-05-06  |  Status: accepted
+
+**Decision.** The M8 license-audit gate
+([NFR-6](./20-non-functional.md), [DR-11](./25-licensing-and-distribution.md))
+is implemented as a hand-rolled Python script
+(`app/scripts/license_audit.py`, ~250 LOC, stdlib-only) plus a flat
+`approved-licenses.txt` allowlist at the repo root. The script walks
+the .eap-bundled file tree, detects each file's SPDX identifier from
+its header (project-owned C/headers), classifies vendored
+third-party files via an in-script manifest cross-checked against
+`THIRD_PARTY_LICENSES.md`, and fails non-zero if any classified
+license falls off the allowlist or any file under `app/src/` /
+`app/settings/` is unclassifiable. The script runs as its own CI job
+(`.github/workflows/license-audit.yml`) on every push and PR.
+
+Three off-the-shelf alternatives were considered and rejected:
+
+- **`reuse` (FSF, SPDX-aware).** Idiomatic for SPDX-headered
+  projects, but enforces SPDX headers on *every* file in the tree.
+  The repo's HTML/CSS/JS UI assets were authored without SPDX
+  headers; adopting `reuse` would force expanding header coverage
+  across `app/html/` — outside M8 scope and outside SSE-A's edit
+  boundary (UI files belong to other active workstreams).
+- **`licensecheck` (Debian).** Looks at file content for license
+  *text*, not SPDX. Works without headers but its output is
+  unstructured ("UNKNOWN", "MIT/X11", various capitalizations) and
+  wrapping it to compare against `approved-licenses.txt` ends up
+  about the same size as the audit script we wrote — without the
+  inventory cross-check.
+- **`scancode-toolkit`.** Most thorough; pulls a multi-package pip
+  dependency tree and runs for ~30 s on a small project. Overkill
+  for a tree of ~36 bundled files and adds CI surface for no gain
+  at this size.
+
+The hand-rolled script is ~250 LOC of stdlib Python with no pip
+install step, exits 1 on policy violation, and emits a markdown
+audit report uploaded as a CI artifact. It catches the three failure
+modes the gate cares about: (1) a new file with a non-allowlist
+SPDX header (e.g. an LGPL drop into `app/src/`), (2) an
+undocumented vendored file (no SPDX header, not in
+`VENDORED_FILES`), (3) inventory drift between
+`THIRD_PARTY_LICENSES.md` and the file tree.
+
+**Approved-license set** (committed as `approved-licenses.txt`):
+MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC, 0BSD,
+Unlicense, CC0-1.0. LGPL is *not* on the list — adding it requires
+the `lgpl-relink/` release-pipeline work per NFR-6 and a new DL
+entry justifying the relink commitment.
+
+**Removed / changed.**
+- `THIRD_PARTY_LICENSES.md` gains a top-level pointer to the audit
+  workflow + allowlist file.
+- `app/scripts/license_audit.py` is the canonical implementation;
+  any future rewrite (e.g. switching to `reuse` once UI SPDX
+  headers ship) must preserve the three failure modes above.
+
+**References.** [NFR-6](./20-non-functional.md),
+[DR-10/DR-11](./25-licensing-and-distribution.md),
+[../THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md),
+[../approved-licenses.txt](../approved-licenses.txt),
+[../app/scripts/license_audit.py](../app/scripts/license_audit.py),
+[../.github/workflows/license-audit.yml](../.github/workflows/license-audit.yml).

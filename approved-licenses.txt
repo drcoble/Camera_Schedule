@@ -1,0 +1,30 @@
+# Camera_Schedule — approved bundled-dependency licenses (NFR-6 / DR-11).
+#
+# Each line is one SPDX short identifier. Lines starting with `#` and
+# blank lines are ignored. The CI license-audit step in
+# `.github/workflows/license-audit.yml` reads this file at run time;
+# any bundled file or manifest entry whose detected license is not on
+# this list fails the build.
+#
+# Policy (per requirements/20-non-functional.md NFR-6):
+#   * Permissive licenses preferred.
+#   * LGPL is permitted ONLY if the corresponding lgpl-relink/ artifact
+#     ships at release time. Adding LGPL here without that pipeline
+#     work is a policy violation — re-read NFR-6 before editing.
+#   * GPL is permitted ONLY if the project itself relicenses to GPL.
+#   * NREL SPA (noncommercial U.S. government license) is FORBIDDEN.
+#
+# To add a new entry: open a PR that (a) adds the SPDX id below,
+# (b) appends a DL-NN entry to requirements/28-decision-log.md
+# explaining why the new license is acceptable for this project, and
+# (c) adds the bundled component to THIRD_PARTY_LICENSES.md with
+# version, source URL, and verbatim license text.
+
+MIT
+BSD-2-Clause
+BSD-3-Clause
+Apache-2.0
+ISC
+0BSD
+Unlicense
+CC0-1.0
