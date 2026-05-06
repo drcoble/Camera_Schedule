@@ -16,6 +16,21 @@ Running on both lab cameras with the four new FastCGI endpoints
 (`anchors`, `calendar`, `events`, `events_today`) verified
 end-to-end via VAPIX round-trip.
 
+**M7 shipped** at `v0.7.0`: status panel (FR-11.2), 50-entry
+in-memory recompute ring buffer (FR-13.3), `LOG_DBG` runtime gate
+toggled via the persistent debug-logging AXParameter (FR-13.4),
+config export/import with `camera-schedule.config.v1` envelope and
+schema validation (FR-12.3), AXParameter exposure of four scalar
+settings under `root.Camera_schedule.*` (FR-12.2), "Recompute now"
+button (FR-10.2), and the formal accessibility audit across all
+five HTML pages (FR-11.4). Five new FastCGI endpoints — `state`,
+`recompute`, `export`, `import`, `debug` — lab-verified end-to-end
+via VAPIX round-trip on both cameras. Note the contract endpoint
+was originally `/status` but the vendored Timelapse2 framework
+already registers a `/status` node at boot (`ACAP.c:691`); a silent
+duplicate-path warning means our handler never reaches the wire.
+Renamed to `/state` per DL-22; OQ-16 captured the trap.
+
 **M4 + M5 code-complete and lab-installed; calendar-locked tags
 still pending.** The M4/M5 implementations ship inside v0.6.0 and
 are running on both cameras (10.1.40.113 / OS 12.10.61,
@@ -33,10 +48,13 @@ operator UI + CRUD verification, not a calendar event:
 Verifying those gates retroactively tags v0.4.0 and v0.5.0; v0.6.0
 stays as the rolling head since it includes both M4 and M5 code.
 
-The current application boots a GLib main loop, exposes six FastCGI
-endpoints (`about`, `location`, `anchors`, `calendar`, `events`,
-`events_today`), and declares **22 built-in AXEvent topics** plus
-operator-defined topics added at runtime via `ACAP_EVENTS_Add_Event`:
+The current application boots a GLib main loop, exposes eleven
+FastCGI endpoints (`about`, `location`, `anchors`, `calendar`,
+`events`, `events_today`, `state`, `recompute`, `export`, `import`,
+`debug`), exposes four AXParameters (`LookaheadDays`,
+`EventNamePrefix`, `PollIntervalSeconds`, `DebugLogging`), and
+declares **22 built-in AXEvent topics** plus operator-defined
+topics added at runtime via `ACAP_EVENTS_Add_Event`:
 
 - 10 solar (FR-3): sunrise/sunset, civil/nautical/astronomical
   twilight pairs, solar noon, solar midnight (Meeus solar position).
@@ -86,14 +104,28 @@ armed. Host-fixture worst errors: solar 40s of FR-3.7's 60s tier-1
 budget; lunar 22s of FR-4.5's 120s budget for habitable rise/set;
 seasonal 60s on a single 2028 boundary fixture, all others ≤50s.
 
-Next milestone is **M7 — Polished UI, logging, status panel** per
-[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). M7 picks up status
-panel (FR-11.2), debug-logging toggle (FR-13.4), config
-export/import (FR-12.3), AXParameter exposure (FR-12.2),
-"Recompute now" button (FR-10.2), and the formal accessibility
-audit (FR-11.4). Don't tag v0.4.0 or v0.5.0 until both calendar
-gates above have produced observable fires from bound action
-rules.
+The M7 status ring buffer (`app/src/status.{c,h}`, 50 entries,
+GMutex-protected) records every recompute scope from
+`timers_recompute_now()`. `GET /state` returns the live snapshot
+plus `rss_kb` from `/proc/self/status` (DL-21). The debug-logging
+flag drives the `LOG_DBG` macro in the new shared `app/src/log.h`
+(which also lifted `LOG`, `LOG_WARN`, `LOG_ERROR` from main.c so
+all .c files can include one header). The export/import envelope
+shape is documented in `app/src/M7_API_CONTRACT.md §1.3-1.4`;
+host fixture `test_export_import.c` exercises round-trip identity
+plus 10 reject cases (12/12 pass).
+
+Next milestone is **M8 — Release readiness** per
+[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). M8 picks up signed
+artifacts (DL-11), license-audit CI gate (NFR-6), reproducible-build
+verification, the Artpec-8+ aarch64 lab target acquisition,
+`CONTRIBUTING.md`/`SECURITY.md`/`CHANGELOG.md` polish, and a public
+release page with signed `.eap` files. Don't tag v0.4.0 or v0.5.0
+until both calendar gates above have produced observable fires
+from bound action rules. The 24-hour soak harness
+(`app/test/lab/soak_24h.sh`) is the post-M7-tag gating step that
+samples `/state.rss_kb`, AppArmor `system_log.cgi`, and recompute
+errors every 60 s for 24 h.
 
 ## Where to read first
 
