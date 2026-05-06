@@ -52,6 +52,10 @@ static gboolean signal_handler(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
+// Forward declaration — apply_seasonal_labels is defined below the
+// HTTP handlers but referenced from HTTP_Endpoint_Location.
+static void apply_seasonal_labels(double lat);
+
 // ---- HTTP handlers ------------------------------------------------
 
 static void HTTP_Endpoint_About(const ACAP_HTTP_Response response,
