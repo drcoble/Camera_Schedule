@@ -30,7 +30,7 @@
 #include "timers.h"
 
 #define APP_PACKAGE "camera_schedule"
-#define APP_VERSION "0.3.0"
+#define APP_VERSION "0.4.0"
 
 #if defined(__aarch64__)
 #define APP_ARCH "aarch64"

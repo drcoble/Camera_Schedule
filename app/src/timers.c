@@ -11,13 +11,29 @@
 // Event slots. Each entry binds an event-topic id (the same string
 // declared in settings/events.json and registered with the AXEvent
 // engine via ACAP_EVENTS_Add_Event) to the way its computed fire time
-// is derived from a solar_events_t struct. M3 covers the full FR-3
-// solar suite: sunrise/sunset, solar noon/midnight, and three
-// twilight zeniths in dawn/dusk pairs.
+// is derived from a solar_events_t / lunar_events_t struct.
+//
+// Two distinct scheduler patterns coexist here:
+//
+//   * Daily slots (`event_slots[]`). Solar full FR-3 suite plus lunar
+//     rise/set/transit/anti-transit. These all fit the midnight-
+//     recompute cadence: at local civil midnight we recompute every
+//     daily quantity for the new UTC date and arm one-shot timers.
+//
+//   * Phase slots (`phase_slots[]`). The four lunar phases (new /
+//     first quarter / full / last quarter) are point-in-time instants
+//     ~29.5 days apart, so they do NOT fit the midnight-recompute
+//     cadence. Each phase slot is armed once at boot for the next
+//     instant of its kind, and re-armed in its own fire callback by
+//     querying lunar_next_phase() with `after = now`. Phases are
+//     observer-independent (no lat/lon dependency), so
+//     timers_recompute_now() does NOT touch them — only the daily
+//     slots get re-armed when geolocation changes.
 
 #define _GNU_SOURCE
 #include "timers.h"
 #include "astro/solar.h"
+#include "astro/lunar.h"
 #include "acap/ACAP.h"
 
 #include <glib.h>
@@ -30,44 +46,76 @@
 #define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
 
 // ---------------------------------------------------------------------
-// Slot configuration
+// Daily slot configuration (solar + lunar rise/set/transit/anti-transit)
 // ---------------------------------------------------------------------
 
-// Which field of solar_events_t a given event maps to.
+// Which field of solar_events_t / lunar_events_t a given event maps to.
 typedef enum {
-    SLOT_RISE,         // sunrise / dawn  — needs a zenith
-    SLOT_SET,          // sunset  / dusk  — needs a zenith
-    SLOT_SOLAR_NOON,   // upper culmination
-    SLOT_SOLAR_MIDNIGHT // lower culmination
+    SLOT_RISE,                // sunrise / dawn  — needs a zenith
+    SLOT_SET,                 // sunset  / dusk  — needs a zenith
+    SLOT_SOLAR_NOON,          // upper culmination
+    SLOT_SOLAR_MIDNIGHT,      // lower culmination
+    SLOT_LUNAR_RISE,          // moonrise
+    SLOT_LUNAR_SET,           // moonset
+    SLOT_LUNAR_TRANSIT,       // upper lunar culmination
+    SLOT_LUNAR_ANTI_TRANSIT   // lower lunar culmination
 } slot_kind_t;
 
 typedef struct {
     const char* event_id;     // matches settings/events.json id
     slot_kind_t kind;
-    double      zenith_deg;   // ignored for SOLAR_NOON / SOLAR_MIDNIGHT
+    double      zenith_deg;   // ignored for non-solar-rise/set kinds
     GSource*    timer;        // NULL when not currently armed
 } event_slot_t;
 
-// One slot per registered event topic.
+// One slot per registered daily event topic.
 //
 // Note. solar_compute can be called once per zenith and re-used to
 // fill multiple slots; recompute_today() groups slots by zenith below
-// so we only compute three times (sunrise/sunset, civil, nautical,
-// astronomical — and noon/midnight come along for free with any of
-// them since they don't depend on zenith).
+// so we only compute four times for solar (sunrise/sunset, civil,
+// nautical, astronomical — and noon/midnight come along for free with
+// any of them since they don't depend on zenith). For lunar, one call
+// to lunar_compute_daily() fills all four lunar slots at once.
 static event_slot_t event_slots[] = {
-    { "sunrise",      SLOT_RISE,           SOLAR_ZENITH_SUNRISE_SUNSET,        NULL },
-    { "sunset",       SLOT_SET,            SOLAR_ZENITH_SUNRISE_SUNSET,        NULL },
-    { "sunnoon",      SLOT_SOLAR_NOON,     0.0,                                NULL },
-    { "sunmidnight",  SLOT_SOLAR_MIDNIGHT, 0.0,                                NULL },
-    { "civildawn",    SLOT_RISE,           SOLAR_ZENITH_CIVIL_TWILIGHT,        NULL },
-    { "civildusk",    SLOT_SET,            SOLAR_ZENITH_CIVIL_TWILIGHT,        NULL },
-    { "nauticaldawn", SLOT_RISE,           SOLAR_ZENITH_NAUTICAL_TWILIGHT,     NULL },
-    { "nauticaldusk", SLOT_SET,            SOLAR_ZENITH_NAUTICAL_TWILIGHT,     NULL },
-    { "astrodawn",    SLOT_RISE,           SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT, NULL },
-    { "astrodusk",    SLOT_SET,            SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT, NULL },
+    { "sunrise",      SLOT_RISE,                SOLAR_ZENITH_SUNRISE_SUNSET,        NULL },
+    { "sunset",       SLOT_SET,                 SOLAR_ZENITH_SUNRISE_SUNSET,        NULL },
+    { "sunnoon",      SLOT_SOLAR_NOON,          0.0,                                NULL },
+    { "sunmidnight",  SLOT_SOLAR_MIDNIGHT,      0.0,                                NULL },
+    { "civildawn",    SLOT_RISE,                SOLAR_ZENITH_CIVIL_TWILIGHT,        NULL },
+    { "civildusk",    SLOT_SET,                 SOLAR_ZENITH_CIVIL_TWILIGHT,        NULL },
+    { "nauticaldawn", SLOT_RISE,                SOLAR_ZENITH_NAUTICAL_TWILIGHT,     NULL },
+    { "nauticaldusk", SLOT_SET,                 SOLAR_ZENITH_NAUTICAL_TWILIGHT,     NULL },
+    { "astrodawn",    SLOT_RISE,                SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT, NULL },
+    { "astrodusk",    SLOT_SET,                 SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT, NULL },
+    { "moonrise",     SLOT_LUNAR_RISE,          0.0,                                NULL },
+    { "moonset",      SLOT_LUNAR_SET,           0.0,                                NULL },
+    { "moonnoon",     SLOT_LUNAR_TRANSIT,       0.0,                                NULL },
+    { "moonmidnight", SLOT_LUNAR_ANTI_TRANSIT,  0.0,                                NULL },
 };
 #define EVENT_SLOT_COUNT (sizeof(event_slots) / sizeof(event_slots[0]))
+
+// ---------------------------------------------------------------------
+// Phase slot configuration (lunar phases — new / 1Q / full / 3Q)
+// ---------------------------------------------------------------------
+
+// Phase slots use a separate machinery from daily slots:
+//   * They are observer-independent (no lat/lon, no zenith).
+//   * They are not daily — instances of each kind are ~29.5 days apart.
+//   * They re-arm themselves in the fire callback by calling
+//     lunar_next_phase(now, kind, ...) again.
+typedef struct {
+    const char*   event_id;   // matches settings/events.json id
+    lunar_phase_t kind;
+    GSource*      timer;      // NULL when not currently armed
+} phase_slot_t;
+
+static phase_slot_t phase_slots[] = {
+    { "newmoon",      LUNAR_PHASE_NEW,           NULL },
+    { "firstquarter", LUNAR_PHASE_FIRST_QUARTER, NULL },
+    { "fullmoon",     LUNAR_PHASE_FULL,          NULL },
+    { "lastquarter",  LUNAR_PHASE_LAST_QUARTER,  NULL },
+};
+#define PHASE_SLOT_COUNT (sizeof(phase_slots) / sizeof(phase_slots[0]))
 
 static GSource* midnight_timer = NULL;
 
@@ -108,14 +156,17 @@ static gboolean event_fire_callback(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
-// Arm one event slot for the given absolute UTC `when`. SOLAR_NO_EVENT
-// or a time in the past leaves the slot disarmed. SOLAR_NO_EVENT
-// emits an INFO log per FR-3.8.
+// Arm one daily-event slot for the given absolute UTC `when`.
+// SOLAR_NO_EVENT / LUNAR_NO_EVENT (both equal (time_t)-1) or a time in
+// the past leaves the slot disarmed. NO_EVENT emits an INFO log per
+// FR-3.8 / FR-4.5 graceful-degradation guidance.
 static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
     cancel_source(&slot->timer);
 
+    // SOLAR_NO_EVENT and LUNAR_NO_EVENT are both defined as (time_t)-1,
+    // so a single sentinel check covers both daily-event domains.
     if (when == SOLAR_NO_EVENT) {
-        LOG("event '%s': no event today (polar/extreme zenith), skipping",
+        LOG("event '%s': no event today (polar/extreme zenith or no horizon crossing), skipping",
             slot->event_id);
         return;
     }
@@ -141,31 +192,121 @@ static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
         slot->event_id, (long long)when, delay);
 }
 
-// Pick the right time_t out of `e` for a given slot kind.
-static time_t time_for_slot(const event_slot_t* slot, const solar_events_t* e) {
+// Pick the right time_t out of the supplied solar/lunar event structs
+// for a given slot kind. The lunar struct is allowed to be NULL when
+// only solar slots are being armed; the unreachable default in the
+// switch protects against future enum additions.
+static time_t time_for_slot(const event_slot_t* slot,
+                            const solar_events_t* s,
+                            const lunar_events_t* l) {
     switch (slot->kind) {
-        case SLOT_RISE:           return e->sunrise;
-        case SLOT_SET:            return e->sunset;
-        case SLOT_SOLAR_NOON:     return e->solar_noon;
-        case SLOT_SOLAR_MIDNIGHT: return e->solar_midnight;
+        case SLOT_RISE:               return s->sunrise;
+        case SLOT_SET:                return s->sunset;
+        case SLOT_SOLAR_NOON:         return s->solar_noon;
+        case SLOT_SOLAR_MIDNIGHT:     return s->solar_midnight;
+        case SLOT_LUNAR_RISE:         return l ? l->moonrise          : SOLAR_NO_EVENT;
+        case SLOT_LUNAR_SET:          return l ? l->moonset           : SOLAR_NO_EVENT;
+        case SLOT_LUNAR_TRANSIT:      return l ? l->lunar_transit     : SOLAR_NO_EVENT;
+        case SLOT_LUNAR_ANTI_TRANSIT: return l ? l->lunar_anti_transit: SOLAR_NO_EVENT;
     }
     return SOLAR_NO_EVENT;  // unreachable
 }
 
+// True iff the slot's kind pulls its time out of lunar_events_t.
+static int slot_is_lunar(const event_slot_t* slot) {
+    return slot->kind == SLOT_LUNAR_RISE
+        || slot->kind == SLOT_LUNAR_SET
+        || slot->kind == SLOT_LUNAR_TRANSIT
+        || slot->kind == SLOT_LUNAR_ANTI_TRANSIT;
+}
+
 // ---------------------------------------------------------------------
-// Recompute pipeline
+// Phase slot scheduler (lunar phases)
+// ---------------------------------------------------------------------
+
+typedef struct { phase_slot_t* slot; } phase_fire_args_t;
+
+static void arm_phase_slot(phase_slot_t* slot);
+
+static gboolean phase_fire_callback(gpointer user_data) {
+    phase_fire_args_t* args = (phase_fire_args_t*)user_data;
+    phase_slot_t* slot = args->slot;
+    LOG("Firing lunar-phase event '%s'", slot->event_id);
+    int rc = ACAP_EVENTS_Fire(slot->event_id);
+    if (rc != 0)
+        LOG_WARN("ACAP_EVENTS_Fire('%s') returned %d", slot->event_id, rc);
+
+    // Re-arm for the next instance of this phase kind. arm_phase_slot
+    // calls cancel_source on the existing slot->timer first;
+    // g_source_destroy + g_source_unref is safe on a source that's
+    // mid-dispatch (the main context still holds its own ref until the
+    // callback returns G_SOURCE_REMOVE), so the dispatch completes
+    // cleanly even though we've torn down the slot's bookkeeping.
+    arm_phase_slot(slot);
+    return G_SOURCE_REMOVE;
+}
+
+// Compute and arm the next-occurrence one-shot timer for a phase slot.
+// Idempotent; safe to call when the slot is already armed (the
+// existing source is cancelled first).
+static void arm_phase_slot(phase_slot_t* slot) {
+    cancel_source(&slot->timer);
+
+    time_t now;
+    time(&now);
+
+    time_t next = 0;
+    int rc = lunar_next_phase(now, slot->kind, &next);
+    if (rc != 0) {
+        LOG_WARN("lunar_next_phase('%s') failed (rc=%d); slot disarmed",
+                 slot->event_id, rc);
+        return;
+    }
+
+    // Defensive: the lunar_next_phase contract guarantees the result
+    // is strictly after `now`, but if numerical drift ever produced a
+    // past value we'd loop-fire forever. Refuse to arm in that case
+    // and emit a warning so the issue is visible in syslog.
+    if (next <= now) {
+        LOG_WARN("lunar_next_phase('%s') returned past instant %lld <= now %lld; not arming",
+                 slot->event_id, (long long)next, (long long)now);
+        return;
+    }
+
+    // The next phase is at most ~29.5 days = ~2.55M seconds away,
+    // comfortably within guint range on every platform that can host
+    // an ACAP. No 24h cap (unlike daily slots, which are implicitly
+    // capped by the midnight recompute).
+    guint delay = (guint)(next - now);
+    GSource* src = g_timeout_source_new_seconds(delay);
+    if (!src) {
+        LOG_WARN("phase '%s': failed to allocate timer source", slot->event_id);
+        return;
+    }
+    phase_fire_args_t* args = g_new(phase_fire_args_t, 1);
+    args->slot = slot;
+    g_source_set_callback(src, phase_fire_callback, args, g_free);
+    g_source_attach(src, NULL);
+    slot->timer = src;
+
+    LOG("phase '%s': armed for UTC %lld (in %u s, ~%.2f days)",
+        slot->event_id, (long long)next, delay, (double)delay / 86400.0);
+}
+
+// ---------------------------------------------------------------------
+// Daily recompute pipeline
 // ---------------------------------------------------------------------
 
 static gboolean midnight_timer_callback(gpointer user_data);
 
 // One full daily recompute: read lat/lon, compute solar events at every
-// zenith we care about, arm each slot's timer.
+// zenith we care about + lunar daily events, arm each slot's timer.
 static int recompute_today(void) {
     double lat = ACAP_DEVICE_Latitude();
     double lon = ACAP_DEVICE_Longitude();
 
     if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) {
-        LOG_WARN("Invalid camera geolocation lat=%f lon=%f; events disarmed",
+        LOG_WARN("Invalid camera geolocation lat=%f lon=%f; daily events disarmed",
                  lat, lon);
         for (size_t i = 0; i < EVENT_SLOT_COUNT; i++)
             cancel_source(&event_slots[i].timer);
@@ -181,7 +322,7 @@ static int recompute_today(void) {
     int month = tm_local.tm_mon  + 1;
     int day   = tm_local.tm_mday;
 
-    LOG("Recomputing solar events for lat=%f lon=%f date=%04d-%02d-%02d",
+    LOG("Recomputing daily events for lat=%f lon=%f date=%04d-%02d-%02d",
         lat, lon, year, month, day);
 
     // Compute once per zenith. Solar noon/midnight are zenith-
@@ -205,14 +346,41 @@ static int recompute_today(void) {
     LOG("solar_noon=%lld solar_midnight=%lld",
         (long long)e_std.solar_noon, (long long)e_std.solar_midnight);
 
-    // Arm each slot from the matching zenith's results.
+    // Lunar daily events. One call covers all four lunar slots
+    // (rise/set/transit/anti-transit). Note: lunar_compute_daily takes
+    // a UTC date, and like the solar block above we feed it the local
+    // calendar date — this matches the per-day windowing the existing
+    // host fixtures validate against.
+    lunar_events_t l = {0};
+    int lrc = lunar_compute_daily(lat, lon, year, month, day, &l);
+    if (lrc != 0) {
+        LOG_WARN("lunar_compute_daily failed (rc=%d); disarming lunar daily slots",
+                 lrc);
+        // lunar_compute_daily on -1 sets all fields to LUNAR_NO_EVENT
+        // already, but be explicit so a future API change doesn't
+        // silently leak stale handles.
+        l.moonrise = l.moonset = l.lunar_transit = l.lunar_anti_transit
+            = LUNAR_NO_EVENT;
+    } else {
+        LOG("lunar moonrise=%lld moonset=%lld transit=%lld anti=%lld",
+            (long long)l.moonrise, (long long)l.moonset,
+            (long long)l.lunar_transit, (long long)l.lunar_anti_transit);
+    }
+
+    // Arm each slot from the matching source.
     for (size_t i = 0; i < EVENT_SLOT_COUNT; i++) {
         event_slot_t* slot = &event_slots[i];
         const solar_events_t* src = &e_std;
-        if (slot->zenith_deg == SOLAR_ZENITH_CIVIL_TWILIGHT)        src = &e_civil;
-        else if (slot->zenith_deg == SOLAR_ZENITH_NAUTICAL_TWILIGHT) src = &e_naut;
+        if (slot_is_lunar(slot)) {
+            // Lunar slots get their time from `l`; the solar argument
+            // is irrelevant but pass e_std for consistency.
+            arm_event_slot(slot, time_for_slot(slot, &e_std, &l), now);
+            continue;
+        }
+        if (slot->zenith_deg == SOLAR_ZENITH_CIVIL_TWILIGHT)             src = &e_civil;
+        else if (slot->zenith_deg == SOLAR_ZENITH_NAUTICAL_TWILIGHT)     src = &e_naut;
         else if (slot->zenith_deg == SOLAR_ZENITH_ASTRONOMICAL_TWILIGHT) src = &e_astro;
-        arm_event_slot(slot, time_for_slot(slot, src), now);
+        arm_event_slot(slot, time_for_slot(slot, src, NULL), now);
     }
     return 0;
 }
@@ -251,10 +419,19 @@ static gboolean midnight_timer_callback(gpointer user_data) {
 int timers_init(void) {
     int rc = recompute_today();
     arm_midnight_timer();
+    // Phase slots are independent of lat/lon and the daily recompute
+    // cadence; arm each one for its next occurrence at boot. They
+    // re-arm themselves in their own fire callbacks.
+    for (size_t i = 0; i < PHASE_SLOT_COUNT; i++)
+        arm_phase_slot(&phase_slots[i]);
     return rc;
 }
 
 int timers_recompute_now(void) {
+    // Phase slots are observer-independent — geolocation changes do
+    // not affect them. Touching only the daily slots avoids
+    // unnecessary churn (cancel + lunar_next_phase recompute) on every
+    // location update.
     return recompute_today();
 }
 
@@ -262,4 +439,6 @@ void timers_cleanup(void) {
     cancel_source(&midnight_timer);
     for (size_t i = 0; i < EVENT_SLOT_COUNT; i++)
         cancel_source(&event_slots[i].timer);
+    for (size_t i = 0; i < PHASE_SLOT_COUNT; i++)
+        cancel_source(&phase_slots[i].timer);
 }

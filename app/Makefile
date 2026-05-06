@@ -19,6 +19,7 @@ PROG  = camera_schedule
 OBJS  = src/main.c \
         src/timers.c \
         src/astro/solar.c \
+        src/astro/lunar.c \
         src/acap/ACAP.c \
         src/acap/cJSON.c
 
@@ -61,20 +62,34 @@ DIST_DIR        := $(REPO_ROOT)/dist
 SDK_VERSION     ?= 12.6.0
 UBUNTU_VERSION  ?= 24.04
 
-.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license test test-clean
+.PHONY: build-armv7hf build-aarch64 build-all dist-clean help stage-license test test-lunar test-clean
 
 # ---------------------------------------------------------------------
 # Host-side tests (no docker, no SDK)
 # ---------------------------------------------------------------------
 
-# Solar test runs natively on the build host. solar.c was kept pure
-# (no GLib, no ACAP framework) so it links cleanly against just libm.
-TEST_HOST_DIR  := $(APP_DIR)/test/host
-TEST_HOST_BIN  := $(TEST_HOST_DIR)/build/test_solar
-TEST_CFLAGS    := -std=c99 -Wall -Wextra -Wpedantic -O2 -I$(APP_DIR)/src
+# Solar and lunar tests run natively on the build host. Both modules
+# are pure (no GLib, no ACAP framework) and link against only libm.
+TEST_HOST_DIR   := $(APP_DIR)/test/host
+TEST_HOST_BIN   := $(TEST_HOST_DIR)/build/test_solar
+TEST_LUNAR_BIN  := $(TEST_HOST_DIR)/build/test_lunar
+# C11 for test_lunar.c (uses compound-literal reset idiom); solar only
+# needs C99. Use c11 for both to keep a single CFLAGS set.
+TEST_CFLAGS     := -std=c11 -Wall -Wextra -Wpedantic -O2 -I$(APP_DIR)/src
 
-test: $(TEST_HOST_BIN) ## Run host-side test fixtures (solar, ...)
+test: $(TEST_HOST_BIN) ## Run host-side test fixtures (solar + lunar)
 	@$(TEST_HOST_BIN)
+	@if [ -f $(APP_DIR)/src/astro/lunar.c ]; then \
+	    $(MAKE) --no-print-directory test-lunar; \
+	else \
+	    echo "test_lunar: SKIPPED (lunar.c not yet available from SSE-1)"; \
+	fi
+
+# Separate target so `make test` keeps running the solar suite even
+# while lunar.c is not yet available from SSE-1. Once lunar.c lands,
+# both suites run and a non-zero exit from test_lunar propagates.
+test-lunar: $(TEST_LUNAR_BIN) ## Build and run the lunar test suite (requires lunar.c from SSE-1)
+	@$(TEST_LUNAR_BIN)
 
 $(TEST_HOST_BIN): $(APP_DIR)/src/astro/solar.c \
                   $(APP_DIR)/src/astro/solar.h \
@@ -84,6 +99,20 @@ $(TEST_HOST_BIN): $(APP_DIR)/src/astro/solar.c \
 	  $(APP_DIR)/src/astro/solar.c \
 	  $(TEST_HOST_DIR)/test_solar.c \
 	  -lm -o $(TEST_HOST_BIN)
+
+# lunar.c will be provided by SSE-1 (M4 implementation). Until then
+# this target fails at link time with a clear "undefined reference"
+# message. test_lunar.c compiles standalone:
+#   cc -std=c11 -Wall -Wextra -Wpedantic -O2 -I app/src -c \
+#      app/test/host/test_lunar.c
+$(TEST_LUNAR_BIN): $(APP_DIR)/src/astro/lunar.c \
+                   $(APP_DIR)/src/astro/lunar.h \
+                   $(TEST_HOST_DIR)/test_lunar.c
+	@mkdir -p $(TEST_HOST_DIR)/build
+	$(CC) $(TEST_CFLAGS) \
+	  $(APP_DIR)/src/astro/lunar.c \
+	  $(TEST_HOST_DIR)/test_lunar.c \
+	  -lm -o $(TEST_LUNAR_BIN)
 
 test-clean: ## Remove host test build outputs
 	rm -rf $(TEST_HOST_DIR)/build
