@@ -12,6 +12,8 @@
 #ifndef CAMERA_SCHEDULE_TIMERS_H
 #define CAMERA_SCHEDULE_TIMERS_H
 
+#include "status.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -40,9 +42,25 @@ int timers_init(void);
 // quitting the main loop. Idempotent.
 void timers_cleanup(void);
 
-// Force an immediate recompute + re-arm. Used by location changes (M2)
-// and the manual recompute endpoint (M7). Returns 0 on success.
-int timers_recompute_now(void);
+// Force an immediate recompute + re-arm. Used by location changes
+// (M2), config-change side-effects in anchors/calendar (M6), and the
+// manual recompute endpoint (M7). The `trigger` parameter is recorded
+// in the status ring so the FR-13.3 history surfaces *why* each
+// recompute ran. Returns 0 on success.
+//
+// Coalescing per FR-10.3: at most one recompute is in flight at a
+// time. If a recompute is already running on another thread, the
+// follow-up call sets a "queued" flag, returns immediately with a
+// non-zero "queued" return code (positive 1), and the in-flight
+// recompute re-runs once after it completes. Errors return -1.
+int timers_recompute_now(recompute_trigger_t trigger);
+
+// Result code distinguishing "queued" from "completed" returns of
+// timers_recompute_now. Allows the POST /recompute handler to emit a
+// 202 instead of 200 in the queued case.
+#define TIMERS_RECOMPUTE_OK     0
+#define TIMERS_RECOMPUTE_QUEUED 1
+#define TIMERS_RECOMPUTE_ERROR (-1)
 
 #ifdef __cplusplus
 }

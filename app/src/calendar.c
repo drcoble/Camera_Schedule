@@ -58,7 +58,9 @@ static int              g_initialized = 0;
 static void state_lock(void)   { g_mutex_lock(&g_state_lock); }
 static void state_unlock(void) { g_mutex_unlock(&g_state_lock); }
 
-static void trigger_recompute(void) { (void)timers_recompute_now(); }
+static void trigger_recompute(void) {
+    (void)timers_recompute_now(RECOMPUTE_TRIGGER_CONFIG_CHANGE);
+}
 
 // ---------------------------------------------------------------------
 // Validation helpers

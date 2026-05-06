@@ -88,7 +88,7 @@ extern int calendar_id_exists(const char* id);
 // ignores anchor slots not yet implemented; once the anchor scheduler
 // pattern lands in timers.c this becomes load-bearing.
 static void trigger_recompute(void) {
-    (void)timers_recompute_now();
+    (void)timers_recompute_now(RECOMPUTE_TRIGGER_CONFIG_CHANGE);
 }
 
 // ---------------------------------------------------------------------
