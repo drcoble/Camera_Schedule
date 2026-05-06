@@ -4,15 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-M0 (repo foundation) and M1 (build pipeline + empty `.eap`) are
-complete. The pipeline produces two installable artifacts on every
-push, and the M1 application — a GLib main loop with a single `about`
-FastCGI endpoint — runs on both lab cameras (OS 12.10.61 + OS 11.11.x).
+**M0–M3 complete.** Tagged releases: `v0.1.0` (M1 build pipeline +
+empty `.eap`), `v0.2.0` (M2 sunrise/sunset MVP), `v0.3.0` (M3 full
+solar suite + polar safety).
 
-Next milestone is **M2 — Sunrise / sunset MVP** per
-[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). Don't take on M2+ work
-until M1's AppArmor 1-hour soak is verified clean and `v0.1.0` is
-tagged.
+The current application boots a GLib main loop, exposes
+`about` / `location` FastCGI endpoints, declares 10 AXEvent topics
+covering the full FR-3 solar suite (sunrise/sunset, civil/nautical/
+astronomical twilight pairs, solar noon, solar midnight), and arms
+per-event GLib timers from a Meeus-based solar-position routine. All
+10 topics are bound to operator action rules in the lab cameras'
+Action Rules UI; polar latitudes correctly produce SOLAR_NO_EVENT
+INFO logs for sunrise/sunset while keeping solar noon/midnight armed.
+Worst host-fixture error is 40 s of FR-3.7's 60 s tier-1 budget.
+
+Next milestone is **M4 — Lunar events** per
+[`IMPLEMENTATION.md`](./IMPLEMENTATION.md). M4 introduces a new
+`app/src/astro/lunar.c|h` for moonrise / moonset / lunar transit /
+phases (Meeus chapters 47 + 49) and adds 8 new entries to
+`settings/events.json`. Don't take on M5+ work until M4's lab-camera
+gate (`fullmoon` action rule fires on the next published full-moon
+date) is verified.
 
 ## Where to read first
 
