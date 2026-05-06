@@ -616,9 +616,15 @@ int ACAP_HTTP_Respond_JSON(ACAP_HTTP_Response response, cJSON* object) {
         return 0;
     }
 
+    // ACAP_HTTP_Respond_String stages output through a 4096-byte
+    // vsnprintf buffer and silently truncates to nothing when the
+    // formatted size exceeds that. JSON payloads regularly exceed
+    // 4 KB (M6 events_today renders ~22 rows × ~250 B), so use
+    // Respond_Data, which streams via FCGX_PutStr without a cap.
+    size_t json_len = strlen(jsonString);
     int result = ACAP_HTTP_Header_JSON(response) &&
-                 ACAP_HTTP_Respond_String(response, "%s", jsonString);
-    
+                 ACAP_HTTP_Respond_Data(response, json_len, jsonString);
+
     free(jsonString);
     return result;
 }
