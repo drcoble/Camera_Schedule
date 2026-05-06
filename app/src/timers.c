@@ -43,6 +43,9 @@
 #define _GNU_SOURCE
 #include "timers.h"
 #include "anchors.h"
+#include "calendar.h"
+#include "log.h"
+#include "status.h"
 #include "astro/solar.h"
 #include "astro/lunar.h"
 #include "astro/seasonal.h"
@@ -51,11 +54,7 @@
 #include <glib.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <time.h>
-
-#define LOG(fmt, args...)      do { syslog(LOG_INFO,    fmt, ## args); } while (0)
-#define LOG_WARN(fmt, args...) do { syslog(LOG_WARNING, fmt, ## args); } while (0)
 
 // ---------------------------------------------------------------------
 // Daily slot configuration (solar + lunar rise/set/transit/anti-transit)
@@ -152,6 +151,39 @@ static season_slot_t season_slots[] = {
 static GSource* midnight_timer = NULL;
 
 // ---------------------------------------------------------------------
+// Recompute coalescing (FR-10.3) and per-pass counters (FR-13.3)
+// ---------------------------------------------------------------------
+//
+// HTTP handlers run on the FastCGI worker thread (see acap/ACAP.c
+// fastcgi_thread_func), the GLib main loop runs the midnight + per-event
+// callbacks. Both can call timers_recompute_now / recompute_today
+// concurrently. We use a g_atomic_int "in_flight" gate plus a queued
+// flag: at most one recompute runs at any instant; a concurrent caller
+// sets `queued` and returns TIMERS_RECOMPUTE_QUEUED, and the running
+// pass loops back through recompute_today once more after it finishes.
+//
+// `pending_trigger` is what the next recompute should record itself as.
+// The currently-running pass picks it up under the gate; a queued
+// caller that arrives mid-pass overwrites it (the most recent intent
+// wins, which is what the operator expects).
+
+static volatile gint g_recompute_in_flight = 0;
+static volatile gint g_recompute_queued    = 0;
+static recompute_trigger_t g_pending_trigger = RECOMPUTE_TRIGGER_BOOT;
+static GMutex g_pending_lock;
+static int    g_pending_lock_init = 0;
+
+// Per-recompute counters. Only the recompute thread touches these
+// while it holds the in-flight gate; readers consult the status ring
+// after the pass completes.
+static int g_pass_anchors_evaluated = 0;
+static int g_pass_events_armed      = 0;
+static int g_pass_skipped_polar     = 0;
+static int g_pass_skipped_disabled  = 0;
+static int g_pass_skipped_past      = 0;
+static int g_pass_errors            = 0;
+
+// ---------------------------------------------------------------------
 // Anchor slot configuration (M6 — operator-defined anchors)
 // ---------------------------------------------------------------------
 //
@@ -232,12 +264,14 @@ static gboolean event_fire_callback(gpointer user_data) {
 // FR-3.8 / FR-4.5 graceful-degradation guidance.
 static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
     cancel_source(&slot->timer);
+    g_pass_anchors_evaluated++;
 
     // FR-11.7 / DL-18: a disabled schedule keeps its AXEvent topic
     // declared but the firing-path arm is suppressed.
     if (!anchors_is_enabled(slot->event_id)) {
         LOG("event '%s': disabled per schedule_enabled.json; not arming",
             slot->event_id);
+        g_pass_skipped_disabled++;
         return;
     }
 
@@ -246,11 +280,13 @@ static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
     if (when == SOLAR_NO_EVENT) {
         LOG("event '%s': no event today (polar/extreme zenith or no horizon crossing), skipping",
             slot->event_id);
+        g_pass_skipped_polar++;
         return;
     }
     if (when <= now) {
         LOG("event '%s': already passed today (%lld <= %lld), skipping",
             slot->event_id, (long long)when, (long long)now);
+        g_pass_skipped_past++;
         return;
     }
 
@@ -258,6 +294,7 @@ static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
     GSource* src = g_timeout_source_new_seconds(delay);
     if (!src) {
         LOG_WARN("event '%s': failed to allocate timer source", slot->event_id);
+        g_pass_errors++;
         return;
     }
     fire_args_t* args = g_new(fire_args_t, 1);
@@ -265,6 +302,7 @@ static void arm_event_slot(event_slot_t* slot, time_t when, time_t now) {
     g_source_set_callback(src, event_fire_callback, args, g_free);
     g_source_attach(src, NULL);
     slot->timer = src;
+    g_pass_events_armed++;
 
     LOG("event '%s': armed for UTC %lld (in %u s)",
         slot->event_id, (long long)when, delay);
@@ -329,10 +367,12 @@ static gboolean phase_fire_callback(gpointer user_data) {
 // existing source is cancelled first).
 static void arm_phase_slot(phase_slot_t* slot) {
     cancel_source(&slot->timer);
+    g_pass_anchors_evaluated++;
 
     if (!anchors_is_enabled(slot->event_id)) {
         LOG("phase '%s': disabled per schedule_enabled.json; not arming",
             slot->event_id);
+        g_pass_skipped_disabled++;
         return;
     }
 
@@ -344,6 +384,7 @@ static void arm_phase_slot(phase_slot_t* slot) {
     if (rc != 0) {
         LOG_WARN("lunar_next_phase('%s') failed (rc=%d); slot disarmed",
                  slot->event_id, rc);
+        g_pass_errors++;
         return;
     }
 
@@ -354,6 +395,7 @@ static void arm_phase_slot(phase_slot_t* slot) {
     if (next <= now) {
         LOG_WARN("lunar_next_phase('%s') returned past instant %lld <= now %lld; not arming",
                  slot->event_id, (long long)next, (long long)now);
+        g_pass_skipped_past++;
         return;
     }
 
@@ -365,6 +407,7 @@ static void arm_phase_slot(phase_slot_t* slot) {
     GSource* src = g_timeout_source_new_seconds(delay);
     if (!src) {
         LOG_WARN("phase '%s': failed to allocate timer source", slot->event_id);
+        g_pass_errors++;
         return;
     }
     phase_fire_args_t* args = g_new(phase_fire_args_t, 1);
@@ -372,6 +415,7 @@ static void arm_phase_slot(phase_slot_t* slot) {
     g_source_set_callback(src, phase_fire_callback, args, g_free);
     g_source_attach(src, NULL);
     slot->timer = src;
+    g_pass_events_armed++;
 
     LOG("phase '%s': armed for UTC %lld (in %u s, ~%.2f days)",
         slot->event_id, (long long)next, delay, (double)delay / 86400.0);
@@ -405,10 +449,12 @@ static gboolean season_fire_callback(gpointer user_data) {
 // slot. Idempotent; safe to call when the slot is already armed.
 static void arm_season_slot(season_slot_t* slot) {
     cancel_source(&slot->timer);
+    g_pass_anchors_evaluated++;
 
     if (!anchors_is_enabled(slot->event_id)) {
         LOG("season '%s': disabled per schedule_enabled.json; not arming",
             slot->event_id);
+        g_pass_skipped_disabled++;
         return;
     }
 
@@ -420,12 +466,14 @@ static void arm_season_slot(season_slot_t* slot) {
     if (rc != 0) {
         LOG_WARN("seasonal_next('%s') failed (rc=%d); slot disarmed",
                  slot->event_id, rc);
+        g_pass_errors++;
         return;
     }
 
     if (next <= now) {
         LOG_WARN("seasonal_next('%s') returned past instant %lld <= now %lld; not arming",
                  slot->event_id, (long long)next, (long long)now);
+        g_pass_skipped_past++;
         return;
     }
 
@@ -435,6 +483,7 @@ static void arm_season_slot(season_slot_t* slot) {
     GSource* src = g_timeout_source_new_seconds(delay);
     if (!src) {
         LOG_WARN("season '%s': failed to allocate timer source", slot->event_id);
+        g_pass_errors++;
         return;
     }
     season_fire_args_t* args = g_new(season_fire_args_t, 1);
@@ -442,6 +491,7 @@ static void arm_season_slot(season_slot_t* slot) {
     g_source_set_callback(src, season_fire_callback, args, g_free);
     g_source_attach(src, NULL);
     slot->timer = src;
+    g_pass_events_armed++;
 
     LOG("season '%s': armed for UTC %lld (in %u s, ~%.1f days)",
         slot->event_id, (long long)next, delay, (double)delay / 86400.0);
@@ -513,8 +563,10 @@ static void arm_operator_anchor(anchor_slot_t* slot,
                                 const anchor_t* a,
                                 time_t now,
                                 time_t local_day_anchor) {
+    g_pass_anchors_evaluated++;
     if (!anchors_is_enabled(a->id)) {
         LOG("anchor '%s': disabled; not arming", a->id);
+        g_pass_skipped_disabled++;
         return;
     }
 
@@ -523,11 +575,13 @@ static void arm_operator_anchor(anchor_slot_t* slot,
         if (anchors_resolve_source(a->event_source, local_day_anchor, &base) != 0) {
             LOG_WARN("anchor '%s': source '%s' unresolved; skipping",
                      a->id, a->event_source);
+            g_pass_errors++;
             return;
         }
         if (base == SOLAR_NO_EVENT) {
             LOG("anchor '%s': source '%s' has no event today",
                 a->id, a->event_source);
+            g_pass_skipped_polar++;
             return;
         }
         time_t when = base + (time_t)(a->offset_minutes * 60);
@@ -551,6 +605,8 @@ static void arm_operator_anchor(anchor_slot_t* slot,
             slot->start_timer = arm_one_shot(when, now, fire_pulse_cb, pa);
             if (!slot->start_timer) g_free(pa);
         }
+        if (slot->start_timer) g_pass_events_armed++;
+        else                   g_pass_skipped_past++;
         return;
     }
 
@@ -559,10 +615,12 @@ static void arm_operator_anchor(anchor_slot_t* slot,
         if (anchors_resolve_source(a->start_event, local_day_anchor, &s_base) != 0 ||
             anchors_resolve_source(a->end_event,   local_day_anchor, &e_base) != 0) {
             LOG_WARN("anchor '%s': paired source unresolved; skipping", a->id);
+            g_pass_errors++;
             return;
         }
         if (s_base == SOLAR_NO_EVENT || e_base == SOLAR_NO_EVENT) {
             LOG("anchor '%s': paired source missing today; skipping", a->id);
+            g_pass_skipped_polar++;
             return;
         }
         time_t s_when = s_base + (time_t)(a->start_offset_minutes * 60);
@@ -580,6 +638,8 @@ static void arm_operator_anchor(anchor_slot_t* slot,
         ea->stateful = 1;
         slot->end_timer = arm_one_shot(e_when, now, fire_state_false_cb, ea);
         if (!slot->end_timer) g_free(ea);
+        if (slot->start_timer) g_pass_events_armed++;
+        else                   g_pass_skipped_past++;
         return;
     }
 
@@ -595,6 +655,7 @@ static void arm_operator_anchor(anchor_slot_t* slot,
         double frac = lunar_illumination(noon_today);
         if (frac < 0.0) {
             LOG_WARN("anchor '%s': lunar_illumination failed", a->id);
+            g_pass_errors++;
             return;
         }
         int satisfied = 0;
@@ -607,6 +668,7 @@ static void arm_operator_anchor(anchor_slot_t* slot,
         if (!satisfied) {
             LOG("anchor '%s': threshold not met today (frac=%.3f)",
                 a->id, frac);
+            g_pass_skipped_disabled++;  // semantic: condition unsatisfied
             return;
         }
         // Fire instant: civil midnight of today (proxy for solar mid).
@@ -621,6 +683,8 @@ static void arm_operator_anchor(anchor_slot_t* slot,
         pa->stateful = 0;
         slot->start_timer = arm_one_shot(fire_at, now, fire_pulse_cb, pa);
         if (!slot->start_timer) g_free(pa);
+        if (slot->start_timer) g_pass_events_armed++;
+        else                   g_pass_skipped_past++;
         return;
     }
 }
@@ -756,11 +820,17 @@ static void arm_midnight_timer(void) {
     GSource* src = g_timeout_source_new_seconds((guint)delay);
     if (!src) {
         LOG_WARN("Failed to allocate midnight timer source");
+        g_pass_errors++;
         return;
     }
     g_source_set_callback(src, midnight_timer_callback, NULL, NULL);
     g_source_attach(src, NULL);
     midnight_timer = src;
+
+    // Surface the next-recompute schedule for /status. The midnight
+    // wake-up is the always-armed daily reference; the per-slot
+    // arming above is faster but not single-pointed.
+    status_set_next(now + delay, RECOMPUTE_TRIGGER_MIDNIGHT);
 
     LOG("Midnight recompute armed for %d s from now", delay);
 }
@@ -768,7 +838,7 @@ static void arm_midnight_timer(void) {
 static gboolean midnight_timer_callback(gpointer user_data) {
     (void)user_data;
     LOG("Local midnight reached; recomputing daily events");
-    (void)recompute_today();
+    (void)timers_recompute_now(RECOMPUTE_TRIGGER_MIDNIGHT);
     arm_midnight_timer();
     return G_SOURCE_REMOVE;
 }
@@ -777,9 +847,67 @@ static gboolean midnight_timer_callback(gpointer user_data) {
 // Public API
 // ---------------------------------------------------------------------
 
-int timers_init(void) {
+// Reset per-pass counters before a recompute. Called only by the holder
+// of g_recompute_in_flight.
+static void reset_pass_counters(void) {
+    g_pass_anchors_evaluated = 0;
+    g_pass_events_armed      = 0;
+    g_pass_skipped_polar     = 0;
+    g_pass_skipped_disabled  = 0;
+    g_pass_skipped_past      = 0;
+    g_pass_errors            = 0;
+}
+
+// Run one recompute pass with full instrumentation: timestamp it,
+// reset counters, run recompute_today(), then push a status_record.
+static int run_one_pass(recompute_trigger_t trigger) {
+    reset_pass_counters();
+
+    GTimer* t = g_timer_new();
+    time_t  started_utc = time(NULL);
     int rc = recompute_today();
+    gulong micros = 0;
+    double seconds = g_timer_elapsed(t, &micros);
+    g_timer_destroy(t);
+
+    if (rc != 0) g_pass_errors++;
+
+    recompute_summary_t s = {
+        .started_at_utc    = started_utc,
+        .trigger           = trigger,
+        .elapsed_ms        = (int)(seconds * 1000.0 + 0.5),
+        .anchors_evaluated = g_pass_anchors_evaluated,
+        .events_armed      = g_pass_events_armed,
+        .skipped_polar     = g_pass_skipped_polar,
+        .skipped_disabled  = g_pass_skipped_disabled,
+        .skipped_past      = g_pass_skipped_past,
+        .errors            = g_pass_errors
+    };
+    status_record(&s);
+
+    // FR-10.4 INFO summary. Co-exists with the structured ring entry
+    // per contract §3 — journal diagnostics still want the human line.
+    LOG("Recompute summary: trigger=%s elapsed_ms=%d anchors=%d armed=%d "
+        "skipped_polar=%d skipped_disabled=%d skipped_past=%d errors=%d",
+        status_trigger_str(trigger), s.elapsed_ms, s.anchors_evaluated,
+        s.events_armed, s.skipped_polar, s.skipped_disabled,
+        s.skipped_past, s.errors);
+
+    return rc;
+}
+
+int timers_init(void) {
+    if (!g_pending_lock_init) {
+        g_mutex_init(&g_pending_lock);
+        g_pending_lock_init = 1;
+    }
+
+    g_atomic_int_set(&g_recompute_in_flight, 1);
+    int rc = run_one_pass(RECOMPUTE_TRIGGER_BOOT);
+    g_atomic_int_set(&g_recompute_in_flight, 0);
+
     arm_midnight_timer();
+
     // Phase + season slots are independent of lat/lon and the daily
     // recompute cadence; arm each one for its next occurrence at boot.
     // They re-arm themselves in their own fire callbacks.
@@ -790,12 +918,44 @@ int timers_init(void) {
     return rc;
 }
 
-int timers_recompute_now(void) {
-    // Phase and season slots are observer-independent — geolocation
-    // changes do not affect them. Touching only the daily slots avoids
-    // unnecessary churn (cancel + lunar_next_phase / seasonal_next
-    // recompute) on every location update.
-    return recompute_today();
+int timers_recompute_now(recompute_trigger_t trigger) {
+    if (!g_pending_lock_init) {
+        // Defensive: callers from anchors.c can land here before
+        // timers_init() during boot's seed phase. Initialize the
+        // mutex on first use; subsequent calls are no-ops.
+        g_mutex_init(&g_pending_lock);
+        g_pending_lock_init = 1;
+    }
+
+    // Try to acquire the in-flight gate. If another thread is already
+    // recomputing, mark the pass queued and return immediately.
+    if (!g_atomic_int_compare_and_exchange(&g_recompute_in_flight, 0, 1)) {
+        g_mutex_lock(&g_pending_lock);
+        g_pending_trigger = trigger;
+        g_mutex_unlock(&g_pending_lock);
+        g_atomic_int_set(&g_recompute_queued, 1);
+        LOG("Recompute trigger=%s queued (one already in flight)",
+            status_trigger_str(trigger));
+        return TIMERS_RECOMPUTE_QUEUED;
+    }
+
+    int rc = run_one_pass(trigger);
+
+    // Drain the queue. If a second trigger arrived during the pass,
+    // re-run with that trigger. Loop guards against starvation:
+    // bounded to 4 follow-ups so a stampede can't pin the thread.
+    int loops = 0;
+    while (g_atomic_int_compare_and_exchange(&g_recompute_queued, 1, 0) &&
+           loops < 4) {
+        g_mutex_lock(&g_pending_lock);
+        recompute_trigger_t pending = g_pending_trigger;
+        g_mutex_unlock(&g_pending_lock);
+        rc = run_one_pass(pending);
+        loops++;
+    }
+
+    g_atomic_int_set(&g_recompute_in_flight, 0);
+    return rc == 0 ? TIMERS_RECOMPUTE_OK : TIMERS_RECOMPUTE_ERROR;
 }
 
 void timers_cleanup(void) {
