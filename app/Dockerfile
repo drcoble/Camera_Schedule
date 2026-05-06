@@ -35,7 +35,15 @@ COPY . /opt/app/
 # .eap. acap-build emits camera_schedule_<version>_<arch>.eap; the
 # Makefile renames it to camera-schedule-<arch>.eap.
 RUN . /opt/axis/acapsdk/environment-setup-* \
-    && acap-build .
+    && acap-build . -a settings/events.json
+# acap-build only auto-bundles a fixed set of well-known directories
+# (html/, lib/, etc.). Arbitrary files like settings/events.json must
+# be passed via -a or they'll be silently dropped from the .eap. The
+# event-topic registration path (ACAP_FILE_Read("settings/events.json")
+# in vendored ACAP.c at line 1613) reads this file at boot to declare
+# AXEvent topics — without it, no topics appear in the camera's Action
+# Rules picker. Add a `-a` for any new file in app/ that isn't under
+# html/ but needs to ship with the .eap.
 
 # Final stage: a tiny image whose only job is to expose the .eap on
 # `docker create + docker cp`.
