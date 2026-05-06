@@ -13,7 +13,7 @@
 // engine via ACAP_EVENTS_Add_Event) to the way its computed fire time
 // is derived from a solar_events_t / lunar_events_t struct.
 //
-// Two distinct scheduler patterns coexist here:
+// Three distinct scheduler patterns coexist here:
 //
 //   * Daily slots (`event_slots[]`). Solar full FR-3 suite plus lunar
 //     rise/set/transit/anti-transit. These all fit the midnight-
@@ -29,11 +29,22 @@
 //     observer-independent (no lat/lon dependency), so
 //     timers_recompute_now() does NOT touch them — only the daily
 //     slots get re-armed when geolocation changes.
+//
+//   * Season slots (`season_slots[]`). The four annual seasonal
+//     events (March equinox, June solstice, September equinox,
+//     December solstice) are point-in-time instants ~91-92 days
+//     apart. Same scheduling shape as phase slots: armed once at
+//     boot, re-armed in fire callback via seasonal_next(). Likewise
+//     observer-independent — timers_recompute_now() does NOT touch
+//     them. Hemisphere-aware *labels* (FR-5.2) are applied at event-
+//     registration time in main.c, not here; this module only
+//     schedules the firing instant.
 
 #define _GNU_SOURCE
 #include "timers.h"
 #include "astro/solar.h"
 #include "astro/lunar.h"
+#include "astro/seasonal.h"
 #include "acap/ACAP.h"
 
 #include <glib.h>
@@ -116,6 +127,26 @@ static phase_slot_t phase_slots[] = {
     { "lastquarter",  LUNAR_PHASE_LAST_QUARTER,  NULL },
 };
 #define PHASE_SLOT_COUNT (sizeof(phase_slots) / sizeof(phase_slots[0]))
+
+// ---------------------------------------------------------------------
+// Season slot configuration (equinoxes + solstices)
+// ---------------------------------------------------------------------
+
+// Same shape as phase slots — observer-independent, ~91-day cadence,
+// re-arms in fire callback by querying seasonal_next() again.
+typedef struct {
+    const char*     event_id;
+    seasonal_kind_t kind;
+    GSource*        timer;
+} season_slot_t;
+
+static season_slot_t season_slots[] = {
+    { "marchequinox",     SEASONAL_MARCH_EQUINOX,     NULL },
+    { "junesolstice",     SEASONAL_JUNE_SOLSTICE,     NULL },
+    { "septemberequinox", SEASONAL_SEPTEMBER_EQUINOX, NULL },
+    { "decembersolstice", SEASONAL_DECEMBER_SOLSTICE, NULL },
+};
+#define SEASON_SLOT_COUNT (sizeof(season_slots) / sizeof(season_slots[0]))
 
 static GSource* midnight_timer = NULL;
 
@@ -294,6 +325,70 @@ static void arm_phase_slot(phase_slot_t* slot) {
 }
 
 // ---------------------------------------------------------------------
+// Season slot scheduler (equinoxes + solstices)
+// ---------------------------------------------------------------------
+
+typedef struct { season_slot_t* slot; } season_fire_args_t;
+
+static void arm_season_slot(season_slot_t* slot);
+
+static gboolean season_fire_callback(gpointer user_data) {
+    season_fire_args_t* args = (season_fire_args_t*)user_data;
+    season_slot_t* slot = args->slot;
+    LOG("Firing seasonal event '%s'", slot->event_id);
+    int rc = ACAP_EVENTS_Fire(slot->event_id);
+    if (rc != 0)
+        LOG_WARN("ACAP_EVENTS_Fire('%s') returned %d", slot->event_id, rc);
+
+    // Re-arm for the next instance of this seasonal kind. Same teardown
+    // semantics as the phase callback — destroy/unref of a mid-dispatch
+    // source is safe because the main context still holds its own ref
+    // until G_SOURCE_REMOVE returns.
+    arm_season_slot(slot);
+    return G_SOURCE_REMOVE;
+}
+
+// Compute and arm the next-occurrence one-shot timer for a season
+// slot. Idempotent; safe to call when the slot is already armed.
+static void arm_season_slot(season_slot_t* slot) {
+    cancel_source(&slot->timer);
+
+    time_t now;
+    time(&now);
+
+    time_t next = 0;
+    int rc = seasonal_next(now, slot->kind, &next);
+    if (rc != 0) {
+        LOG_WARN("seasonal_next('%s') failed (rc=%d); slot disarmed",
+                 slot->event_id, rc);
+        return;
+    }
+
+    if (next <= now) {
+        LOG_WARN("seasonal_next('%s') returned past instant %lld <= now %lld; not arming",
+                 slot->event_id, (long long)next, (long long)now);
+        return;
+    }
+
+    // Next seasonal event is ~91 days at most = ~7.9M seconds. Within
+    // guint range on every supported platform.
+    guint delay = (guint)(next - now);
+    GSource* src = g_timeout_source_new_seconds(delay);
+    if (!src) {
+        LOG_WARN("season '%s': failed to allocate timer source", slot->event_id);
+        return;
+    }
+    season_fire_args_t* args = g_new(season_fire_args_t, 1);
+    args->slot = slot;
+    g_source_set_callback(src, season_fire_callback, args, g_free);
+    g_source_attach(src, NULL);
+    slot->timer = src;
+
+    LOG("season '%s': armed for UTC %lld (in %u s, ~%.1f days)",
+        slot->event_id, (long long)next, delay, (double)delay / 86400.0);
+}
+
+// ---------------------------------------------------------------------
 // Daily recompute pipeline
 // ---------------------------------------------------------------------
 
@@ -419,19 +514,21 @@ static gboolean midnight_timer_callback(gpointer user_data) {
 int timers_init(void) {
     int rc = recompute_today();
     arm_midnight_timer();
-    // Phase slots are independent of lat/lon and the daily recompute
-    // cadence; arm each one for its next occurrence at boot. They
-    // re-arm themselves in their own fire callbacks.
+    // Phase + season slots are independent of lat/lon and the daily
+    // recompute cadence; arm each one for its next occurrence at boot.
+    // They re-arm themselves in their own fire callbacks.
     for (size_t i = 0; i < PHASE_SLOT_COUNT; i++)
         arm_phase_slot(&phase_slots[i]);
+    for (size_t i = 0; i < SEASON_SLOT_COUNT; i++)
+        arm_season_slot(&season_slots[i]);
     return rc;
 }
 
 int timers_recompute_now(void) {
-    // Phase slots are observer-independent — geolocation changes do
-    // not affect them. Touching only the daily slots avoids
-    // unnecessary churn (cancel + lunar_next_phase recompute) on every
-    // location update.
+    // Phase and season slots are observer-independent — geolocation
+    // changes do not affect them. Touching only the daily slots avoids
+    // unnecessary churn (cancel + lunar_next_phase / seasonal_next
+    // recompute) on every location update.
     return recompute_today();
 }
 
@@ -441,4 +538,6 @@ void timers_cleanup(void) {
         cancel_source(&event_slots[i].timer);
     for (size_t i = 0; i < PHASE_SLOT_COUNT; i++)
         cancel_source(&phase_slots[i].timer);
+    for (size_t i = 0; i < SEASON_SLOT_COUNT; i++)
+        cancel_source(&season_slots[i].timer);
 }

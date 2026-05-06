@@ -30,7 +30,7 @@
 #include "timers.h"
 
 #define APP_PACKAGE "camera_schedule"
-#define APP_VERSION "0.4.0"
+#define APP_VERSION "0.5.0"
 
 #if defined(__aarch64__)
 #define APP_ARCH "aarch64"
@@ -127,6 +127,7 @@ static void HTTP_Endpoint_Location(const ACAP_HTTP_Response response,
         }
 
         LOG("Geolocation updated to lat=%f lon=%f; recomputing events", lat, lon);
+        apply_seasonal_labels(lat);
         timers_recompute_now();
 
         cJSON* body = current_location_json();
@@ -136,6 +137,47 @@ static void HTTP_Endpoint_Location(const ACAP_HTTP_Response response,
     }
 
     ACAP_HTTP_Respond_Error(response, 405, "Method Not Allowed");
+}
+
+// ---- Hemisphere-aware solstice labels (FR-5.2) --------------------
+
+// FR-5.2 says solstice labels SHALL be derived from the sign of the
+// camera's latitude:
+//   * Northern (lat >= +0.5°): June → "Longest Day", Dec → "Shortest Day"
+//   * Southern (lat <= -0.5°): inverse
+//   * Equatorial (|lat| < 0.5°): neutral "June solstice" / "December solstice"
+//
+// settings/events.json is loaded by ACAP() at boot with the neutral
+// labels. After ACAP() returns we know lat, so we Remove + Add the
+// two solstice topics with the hemisphere-appropriate nice names.
+// Same helper is called from the location POST handler so an operator
+// who moves the camera across hemispheres gets the correct labels
+// without rebooting. Action rules in Axis bind by topic ID, not nice
+// name, so Remove + Add is safe for any pre-bound rules.
+static void apply_seasonal_labels(double lat) {
+    const char* june_name;
+    const char* dec_name;
+
+    if (lat >= 0.5) {
+        june_name = "Longest Day";
+        dec_name  = "Shortest Day";
+    } else if (lat <= -0.5) {
+        june_name = "Shortest Day";
+        dec_name  = "Longest Day";
+    } else {
+        june_name = "June solstice";
+        dec_name  = "December solstice";
+    }
+
+    // FR-5.3: equinoxes always render as the neutral "March equinox" /
+    // "September equinox" — no rebinding needed for those two.
+    ACAP_EVENTS_Remove_Event("junesolstice");
+    ACAP_EVENTS_Add_Event("junesolstice", june_name, 0);
+    ACAP_EVENTS_Remove_Event("decembersolstice");
+    ACAP_EVENTS_Add_Event("decembersolstice", dec_name, 0);
+
+    LOG("Seasonal labels applied for lat=%f: junesolstice='%s', decembersolstice='%s'",
+        lat, june_name, dec_name);
 }
 
 // ---- Settings callback (config persistence; unused at M2) ---------
@@ -160,6 +202,12 @@ int main(void) {
 
     ACAP_HTTP_Node("about",    HTTP_Endpoint_About);
     ACAP_HTTP_Node("location", HTTP_Endpoint_Location);
+
+    // Re-label the two solstice topics now that lat is known. Must
+    // happen after ACAP() (which declares the topics with their
+    // neutral defaults from events.json) but before timers_init() so
+    // the AXEvent declarations are settled before any timer can fire.
+    apply_seasonal_labels(ACAP_DEVICE_Latitude());
 
     // Arm the daily-recompute machinery and today's per-event timers.
     if (timers_init() != 0)

@@ -15,6 +15,10 @@
   { "id": "moonmidnight", "name": "Lunar anti-transit",   "state": false, "show": true },
   { "id": "newmoon",      "name": "New moon",             "state": false, "show": true },
   { "id": "firstquarter", "name": "First quarter moon",   "state": false, "show": true },
-  { "id": "fullmoon",     "name": "Full moon",            "state": false, "show": true },
-  { "id": "lastquarter",  "name": "Last quarter moon",    "state": false, "show": true }
+  { "id": "fullmoon",         "name": "Full moon",            "state": false, "show": true },
+  { "id": "lastquarter",      "name": "Last quarter moon",    "state": false, "show": true },
+  { "id": "marchequinox",     "name": "March equinox",        "state": false, "show": true },
+  { "id": "junesolstice",     "name": "June solstice",        "state": false, "show": true },
+  { "id": "septemberequinox", "name": "September equinox",    "state": false, "show": true },
+  { "id": "decembersolstice", "name": "December solstice",    "state": false, "show": true }
 ]
