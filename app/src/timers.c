@@ -860,6 +860,15 @@ static void reset_pass_counters(void) {
 
 // Run one recompute pass with full instrumentation: timestamp it,
 // reset counters, run recompute_today(), then push a status_record.
+//
+// Caveat on counters: arm_phase_slot / arm_season_slot are also called
+// from their own fire callbacks (the slots re-arm themselves after
+// firing). Those callbacks don't run inside run_one_pass, so any
+// counter increments they emit leak into whichever recompute pass
+// happens to be in flight when the callback fires — or into nothing
+// if no pass is active. The counters are advisory (UI / diagnostic
+// only); the cost of a per-pass guard around every g_pass_* increment
+// did not justify the precision gain.
 static int run_one_pass(recompute_trigger_t trigger) {
     reset_pass_counters();
 

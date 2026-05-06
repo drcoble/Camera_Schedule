@@ -1522,61 +1522,142 @@ static void HTTP_Endpoint_Import(const ACAP_HTTP_Response response,
         new_debug = cJSON_IsTrue(dbg_v) ? 1 : 0;
     }
 
-    // Pre-import safety: best-effort copy-aside of the three live config
-    // files. The atomic-write path inside anchors_replace_all /
-    // calendar_replace_all rolls back on individual failure; the
-    // copy-aside lets a human recover from a successful-but-semantically-
-    // wrong import. Failures here are non-fatal — log + continue.
-    long long ts = (long long)time(NULL);
-    const char* sandbox = ACAP_FILE_AppPath();
-    if (sandbox) {
-        char src[256], dst[300];
-        const char* targets[] = {
-            "localdata/anchors.json",
-            "localdata/calendar.json",
-            "localdata/schedule_enabled.json",
-            NULL
-        };
-        for (int i = 0; targets[i]; i++) {
-            snprintf(src, sizeof src, "%s%s", sandbox, targets[i]);
-            snprintf(dst, sizeof dst, "%s%s.before-import-%lld",
-                     sandbox, targets[i], ts);
-            if (rename(src, dst) == 0) {
-                LOG("import: archived %s -> %s.before-import-%lld",
-                    targets[i], targets[i], ts);
-            } else if (errno != ENOENT) {
-                LOG_WARN("import: copy-aside of %s failed: %s",
-                         targets[i], strerror(errno));
+    // Cross-batch pre-flight: an anchor and a calendar entry sharing
+    // the same id would survive the per-batch shape validation but
+    // make calendar_replace_all reject (CALENDAR_ERR_DUPLICATE) AFTER
+    // anchors_replace_all has already mutated state. Catch it here
+    // before any disk writes so we never leave the on-disk + in-memory
+    // halves inconsistent.
+    for (int i = 0; i < n_anchors; i++) {
+        for (int j = 0; j < n_cal; j++) {
+            if (strcmp(anchor_batch[i].id, cal_batch[j].id) == 0) {
+                cJSON_Delete(in);
+                char msg[96];
+                snprintf(msg, sizeof msg,
+                         "id '%s' appears in both anchors[] and calendar[]",
+                         anchor_batch[i].id);
+                respond_json_error(response, 400, "id_conflict", msg);
+                return;
             }
         }
     }
 
-    // Step 5: apply. All-or-nothing: anchors_replace_all is atomic
-    // internally (validator then rename). Same for calendar_replace_all.
+    // Pre-import safety: rename live config files aside as
+    // *.before-import-<ts> so we have a rollback path if a later step
+    // fails. Per contract §1.4 step 6: if the apply phase fails part-
+    // way, the prior config MUST be preserved unchanged. We track
+    // which renames succeeded and reverse them on failure.
+    //
+    // anchor_from_wire / calendar_from_wire validate parse shape only.
+    // anchors_replace_all / calendar_replace_all do cross-namespace
+    // dependency, regex, and built-in-collision checks that can reject
+    // batches that survived shape validation — so the failure mode is
+    // reachable, not theoretical.
+    //
+    // Caveat: this rolls back the on-disk file but cannot roll back
+    // the anchors_replace_all in-memory state. If anchors apply
+    // succeeds and calendar apply fails, the running app has new
+    // anchors in memory until the next boot or a clean import. This
+    // matches the contract's "prior config preserved" guarantee
+    // (it's about persistent state) and any subsequent boot
+    // reconciles. A pre-flight validator that mirrors
+    // anchors_replace_all's checks would close this window; the
+    // apparent gain doesn't justify exposing internal validators in
+    // anchors.h, so we leave it as a follow-up.
+    long long ts = (long long)time(NULL);
+    const char* sandbox = ACAP_FILE_AppPath();
+    const char* targets[] = {
+        "localdata/anchors.json",
+        "localdata/calendar.json",
+        "localdata/schedule_enabled.json",
+        NULL
+    };
+    char saved_src[3][256];
+    char saved_dst[3][300];
+    int  saved_n = 0;
+    if (sandbox) {
+        for (int i = 0; targets[i]; i++) {
+            snprintf(saved_src[i], sizeof saved_src[i], "%s%s",
+                     sandbox, targets[i]);
+            snprintf(saved_dst[i], sizeof saved_dst[i],
+                     "%s%s.before-import-%lld",
+                     sandbox, targets[i], ts);
+            if (rename(saved_src[i], saved_dst[i]) == 0) {
+                LOG("import: archived %s -> %s.before-import-%lld",
+                    targets[i], targets[i], ts);
+                saved_n++;
+            } else if (errno != ENOENT) {
+                LOG_WARN("import: copy-aside of %s failed: %s",
+                         targets[i], strerror(errno));
+            } else {
+                // ENOENT — no live file to archive. Leave saved_n at
+                // its current value; the rollback walk below will skip
+                // entries whose dst doesn't exist.
+            }
+        }
+    }
+
+    // Restore-on-failure helper, used by every error path between here
+    // and the success response. Walks `targets` in reverse so the most
+    // recent rename is undone first, and unlinks any new file produced
+    // by a partial apply step before swinging the saved-aside copy
+    // back into place.
+#define IMPORT_ROLLBACK_AND_FAIL(tag_str, msg_str) do { \
+    for (int _i = 0; targets[_i]; _i++) { \
+        /* Best-effort: clobber any partial new file the apply step left. */ \
+        unlink(saved_src[_i]); \
+        if (rename(saved_dst[_i], saved_src[_i]) == 0) { \
+            LOG("import rollback: restored %s", targets[_i]); \
+        } else if (errno != ENOENT) { \
+            LOG_WARN("import rollback: rename(%s) failed: %s", \
+                     targets[_i], strerror(errno)); \
+        } \
+    } \
+    cJSON_Delete(in); \
+    respond_json_error(response, 500, (tag_str), (msg_str)); \
+    return; \
+} while (0)
+
+    (void)saved_n;  // silence -Wunused if rollback macro unused on a path
+
+    // Step 5: apply. All-or-nothing semantics enforced by the rollback
+    // macro above — any failure beyond this point swings the
+    // *.before-import-<ts> copies back into place.
     int rc = anchors_replace_all(anchor_batch, (size_t)n_anchors);
     if (rc != ANCHORS_OK) {
-        cJSON_Delete(in);
         const char* tag; const char* msg;
-        int code = map_anchors_err(rc, &tag, &msg);
-        respond_json_error(response, code, tag, msg);
-        return;
+        (void)map_anchors_err(rc, &tag, &msg);
+        IMPORT_ROLLBACK_AND_FAIL(tag, msg);
     }
     rc = calendar_replace_all(cal_batch, (size_t)n_cal);
     if (rc != CALENDAR_OK) {
-        cJSON_Delete(in);
         const char* tag; const char* msg;
-        int code = map_anchors_err(rc, &tag, &msg);
-        respond_json_error(response, code, tag, msg);
-        return;
+        (void)map_anchors_err(rc, &tag, &msg);
+        IMPORT_ROLLBACK_AND_FAIL(tag, msg);
     }
     if (en_obj) {
         cJSON* child = en_obj->child;
+        int enabled_rc = ANCHORS_OK;
         while (child) {
             int en = cJSON_IsTrue(child) ? 1 : 0;
-            (void)anchors_set_enabled(child->string, en);
+            int r = anchors_set_enabled(child->string, en);
+            // ANCHORS_ERR_NOT_FOUND is benign here — an exported
+            // schedule_enabled key for an id that doesn't exist on
+            // this camera (e.g. operator-renamed an anchor) is the
+            // forward-compat path FR-12.4 expects to silently absorb.
+            if (r != ANCHORS_OK && r != ANCHORS_ERR_NOT_FOUND) {
+                enabled_rc = r;
+                break;
+            }
             child = child->next;
         }
+        if (enabled_rc != ANCHORS_OK) {
+            const char* tag; const char* msg;
+            (void)map_anchors_err(enabled_rc, &tag, &msg);
+            IMPORT_ROLLBACK_AND_FAIL(tag, msg);
+        }
     }
+#undef IMPORT_ROLLBACK_AND_FAIL
 
     // Apply debug_logging from the envelope.
     if (new_debug != g_debug_logging_enabled) {
@@ -1711,6 +1792,12 @@ static void axparam_load_int(AXParameter* p, const char* name,
     }
 }
 
+// Load a string AXParameter into a fixed-size buffer. snprintf
+// truncates to (out_len - 1) silently — the AXParameter type string
+// "string:maxlen=N" is enforced server-side on writes via param.cgi
+// per Axis docs, so a 33-byte buffer paired with maxlen=32 has a
+// guaranteed safe round-trip at runtime, but the truncation here
+// catches any pre-M7 values written before the type string was added.
 static void axparam_load_string(AXParameter* p, const char* name,
                                 char* out, size_t out_len) {
     if (!p || !name || !out || out_len == 0) return;
@@ -1849,6 +1936,18 @@ static void axparams_init(void) {
         g_param_lookahead_days, g_param_event_name_prefix,
         g_param_poll_interval_seconds,
         g_debug_logging_enabled ? "yes" : "no");
+
+    // EventNamePrefix is declared and persisted but NOT YET wired into
+    // event registration. Per contract §8 the prefix should apply at
+    // boot to the AXEvent NiceName for every declared topic
+    // (ACAP_EVENTS_Add_Event in the seed loop in main()) and in
+    // apply_seasonal_labels(). Wiring it requires touching code paths
+    // shared with the UI agent's branch and was deferred to keep M7's
+    // SSE diff minimal. Operator changes to this parameter will simply
+    // be ignored at boot until that wiring lands.
+    if (g_param_event_name_prefix[0] != '\0')
+        LOG("Note: EventNamePrefix='%s' set but not yet applied to topic NiceNames",
+            g_param_event_name_prefix);
 }
 
 static void axparams_cleanup(void) {
