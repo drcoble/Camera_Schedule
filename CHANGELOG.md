@@ -12,31 +12,57 @@ the canonical artifact reference.
 
 ## [Unreleased]
 
-M8 work in flight: license-audit CI gate, reproducible-build
-verification, and the documentation polish pass that produces this
-changelog. Tracks toward `v1.0.0-beta` per
-[DL-23](./requirements/28-decision-log.md).
+(no changes since v1.0.0-beta)
 
-## [1.0.0-beta] — TBD
+## [1.0.0-beta] — 2026-05-07
 
 First public 1.x release. Feature-complete on armv7hf and
 lab-verified on AXIS OS 11.11+ and OS 12.x. Artpec-8+ / aarch64
-hardware verification and Axis Application Signing are deferred
-to a post-beta milestone per
-[DL-23](./requirements/28-decision-log.md).
+hardware smoke and Axis Application Signing are deferred to a
+post-beta milestone per
+[DL-23](./requirements/28-decision-log.md). Acceptance evidence:
+[`docs/verification/v1.0.0-beta-readiness.md`](./docs/verification/v1.0.0-beta-readiness.md)
+(9 PASS, 1 PARTIAL, 0 FAIL).
 
 ### Added
 
-- License-audit CI gate that fails the build on bundled
-  dependencies whose licenses are not on the approved list
+- License-audit CI gate (`.github/workflows/license-audit.yml`)
+  that fails the build on bundled dependencies whose licenses are
+  not on the approved list. Hand-rolled stdlib-only audit script
+  at `app/scripts/license_audit.py` (DL-25 rationale)
   ([NFR-6](./requirements/20-non-functional.md),
   [DR-11](./requirements/25-licensing-and-distribution.md)).
-- Reproducible-build verification: a clean checkout produces an
-  `.eap` whose SHA-256 matches the published artifact
+- Reproducible-build verification
+  (`.github/workflows/reproducibility.yml`): a clean checkout
+  produces an `.eap` whose SHA-256 matches a second build of the
+  same source tree. `SOURCE_DATE_EPOCH` is derived from the head
+  commit; `app/scripts/repack_eap.sh` normalizes tar mtimes,
+  ordering, ownership, and gzip headers (DL-26)
   ([BR-6](./requirements/22-build-and-packaging.md)).
-- `CHANGELOG.md` covering the v0.1 → v1.0.0-beta history.
-- DCO sign-off policy in `CONTRIBUTING.md`
-  ([DR-7](./requirements/25-licensing-and-distribution.md)).
+- Release-publish workflow (`.github/workflows/release.yml`) that
+  on a `v[0-9]+.[0-9]+.[0-9]+(-beta)?` tag push: builds both `.eap`
+  with the SDK image digest pinned, generates `SHA-256SUMS.txt`,
+  drafts a GitHub Release with assets attached. Always-draft
+  policy lets the integrator review the bundle before publishing
+  (DL-27)
+  ([DR-12](./requirements/25-licensing-and-distribution.md)).
+- `THIRD_PARTY_LICENSES.md` enumerating every bundled third-party
+  component, its version, and its license text
+  ([DR-10](./requirements/25-licensing-and-distribution.md)).
+- `approved-licenses.txt` allowlist at the repo root.
+- `app/scripts/extract_release_notes.py` extracts the matching
+  `[1.0.0-beta]` (or any tagged) section from `CHANGELOG.md` for
+  the GitHub Release body.
+- `CHANGELOG.md` itself, covering the v0.1 → v1.0.0-beta history
+  in [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)
+  format (DL-24).
+- `docs/verification/v1.0.0-beta-readiness.md` — frozen acceptance
+  report against [`requirements/23-verification.md`](./requirements/23-verification.md).
+- `docs/release-pipeline.md` — single contributor reference for
+  the M8 CI/release machinery.
+- DCO sign-off policy in `CONTRIBUTING.md` (DL-24 tightens
+  [DR-7](./requirements/25-licensing-and-distribution.md) from
+  "recommended" to "mandatory").
 - Public release page on GitHub with **unsigned** `.eap` artifacts
   for both armv7hf and aarch64, SHA-256 checksums, and the
   third-party-license bundle.
@@ -45,10 +71,32 @@ to a post-beta milestone per
 
 - `SECURITY.md` rewritten to document the supported-versions
   table, the response-window commitment, and the in-scope /
-  out-of-scope policy. Signing-pipeline language amended to
-  reflect [DL-23](./requirements/28-decision-log.md).
-- README banner notes `v1.0.0-beta` status and the gates on
-  promotion to `v1.0.0`.
+  out-of-scope policy. Reporting channel narrowed to **GitHub
+  private vulnerability reporting only**; email fallback removed.
+  Signing-pipeline language amended to reflect
+  [DL-23](./requirements/28-decision-log.md).
+- README scope-at-a-glance corrected from the dropped Path B
+  language ("Generate RFC 5545 iCalendar... Event Schedule API")
+  to the actual Path A ACAP event-topic mechanism
+  ([DL-05](./requirements/28-decision-log.md)). Banner notes
+  `v1.0.0-beta` status and the gates on promotion to `v1.0.0`.
+
+### Verified
+
+- 24-hour soak on the OS 12 lab camera (10.1.40.113): RSS stable
+  at 9032 kB across 454 samples spanning 25h32m wall-clock; 0
+  AppArmor DENIED entries, 99.78% HTTP 200, 0 recompute errors.
+  Methodology caveat (host-sleep gaps) documented in the
+  verification report.
+- License-audit gate exercised end-to-end via a synthetic LGPL
+  drop PR (#2). The audit job rejected the LGPL-2.1-or-later
+  header in 6 seconds (CI run `25524553292`); PR closed without
+  merging, branch deleted.
+- All 22 built-in AXEvent topics (10 solar + 8 lunar + 4 seasonal)
+  declared and operationally verified across M2..M5 lab gates and
+  the M6 anchor-CRUD lab gate. Tag candidate is built from the
+  same tree as v0.7.0 plus M8's CI/build/docs additions; no
+  source-code changes between v0.7.0 and v1.0.0-beta.
 
 ## [0.7.0] — 2026-05-06
 
