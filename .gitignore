@@ -47,3 +47,9 @@ coverage/
 
 # Docker
 .dockerignore.bak
+
+# Soak harness writes here; durable evidence is committed under
+# docs/verification/soak/ instead. This dir holds working state
+# for in-flight runs only. Anchored to repo root so the
+# committed docs/verification/soak/ is unaffected.
+/soak/
