@@ -41,6 +41,9 @@ coverage/
 
 # Claude Code local-only settings (project-level settings.json is committed)
 .claude/settings.local.json
+# Claude Code worktrees + transient agent briefs (never commit)
+.claude/worktrees/
+.claude/m8-briefs/
 
 # Docker
 .dockerignore.bak
