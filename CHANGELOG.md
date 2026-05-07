@@ -96,11 +96,6 @@ and runtime debug toggle.
   `/status` node registered at `ACAP.c:691`
   ([DL-22](./requirements/28-decision-log.md)).
 
-### Fixed
-
-- `ACAP_HTTP_Respond_JSON` truncated payloads larger than 4 KB
-  to nothing.
-
 ## [0.6.0] — 2026-05-06
 
 M4, M5, and M6 shipped together. M6's acceptance gate (operator
@@ -155,6 +150,8 @@ firing gates verify retroactively on 2026-05-31 and 2026-06-21.
   failure).
 - Implemented `ACAP_FILE_Exists` in vendored `ACAP.c` (the
   upstream framework declared but did not define it).
+- `ACAP_HTTP_Respond_JSON` truncated payloads larger than 4 KB
+  to nothing.
 - M6 build errors: `LOG_ERR` collision with syslog header, missing
   forward declaration, ordering issue in `main.c`.
 - DST epoch constants in `test_anchors.c` corrected to 2026 dates.
