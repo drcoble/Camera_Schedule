@@ -9,15 +9,13 @@ you file a report.
 
 **Do not** open a public GitHub issue for a security report.
 
-Use one of the following private channels, in order of preference:
+Use **GitHub private vulnerability reporting**: open a private
+advisory via the repository's *Security* tab → *Report a vulnerability*
+at <https://github.com/drcoble/Camera_Schedule/security/advisories/new>.
 
-1. **GitHub private vulnerability reporting** (preferred). Open a
-   private advisory via the repository's *Security* tab → *Report a
-   vulnerability* at
-   <https://github.com/drcoble/Camera_Schedule/security/advisories/new>.
-2. **Email**: `[security@PROJECT_DOMAIN_TBD]`. Use the GitHub
-   advisory channel if you can; the email fallback exists for cases
-   where GitHub is unavailable to the reporter.
+This is the only supported reporting channel. A GitHub account is
+required to file an advisory; if you do not have one and cannot
+create one, ask a trusted intermediary to file on your behalf.
 
 Please include, at minimum:
 
