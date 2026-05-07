@@ -67,7 +67,7 @@ DIST_DIR        := $(REPO_ROOT)/dist
 SDK_VERSION     ?= 12.6.0
 UBUNTU_VERSION  ?= 24.04
 
-# Optional SDK image digest pin (BR-6 / DL-25). Empty by default —
+# Optional SDK image digest pin (BR-6 / DL-26). Empty by default —
 # release.yml resolves the digest at tag time and exports
 # SDK_DIGEST_<arch> in the env. Per-arch because the SDK image is
 # multi-platform and each arch has its own digest.
@@ -79,7 +79,7 @@ SDK_DIGEST_aarch64 ?=
         test-export-import test-clean license-audit reproducibility-check
 
 # ---------------------------------------------------------------------
-# Reproducibility plumbing (BR-6 / DL-25)
+# Reproducibility plumbing (BR-6 / DL-26)
 # ---------------------------------------------------------------------
 #
 # SOURCE_DATE_EPOCH pins the timestamp embedded in tar entries and the
@@ -255,7 +255,7 @@ build-aarch64: stage-license ## Build the aarch64 .eap (OS 12 on Artpec-8+)
 	@ls -la $(DIST_DIR)/camera-schedule-aarch64.eap
 
 # ---------------------------------------------------------------------
-# License audit (NFR-6 / DR-11) — see DL-24.
+# License audit (NFR-6 / DR-11) — see DL-25.
 # ---------------------------------------------------------------------
 license-audit: ## Run the bundled-license audit (NFR-6 / DR-11)
 	@python3 $(APP_DIR)/scripts/license_audit.py

@@ -3,7 +3,7 @@ name: Release
 # Triggers on annotated tag pushes matching v1.2.3 or v1.2.3-beta.
 # A `workflow_dispatch` `dry_run` input is also exposed so the
 # integrator can verify build + checksum + asset assembly without
-# actually publishing a GitHub Release. See DL-26 for policy.
+# actually publishing a GitHub Release. See DL-27 for policy.
 on:
   push:
     tags:
@@ -46,7 +46,7 @@ jobs:
           SDE=$(git log -1 --pretty=%ct)
           echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
 
-      - name: Resolve SDK image digest (DL-25)
+      - name: Resolve SDK image digest (DL-26)
         id: sdkpin
         run: |
           set -euo pipefail
@@ -173,7 +173,7 @@ jobs:
           if [ "${{ steps.tag.outputs.prerelease }}" = "true" ]; then
             PRERELEASE_FLAG="--prerelease"
           fi
-          # `--draft` is unconditional: per DL-26 the release is always
+          # `--draft` is unconditional: per DL-27 the release is always
           # created as a draft so the integrator can review the body
           # and assets before publishing. The integrator un-drafts via
           # the GitHub UI or `gh release edit --draft=false`.
@@ -200,7 +200,7 @@ jobs:
           echo "Release would be created with:"
           echo "  tag: ${{ steps.tag.outputs.tag }}"
           echo "  prerelease: ${{ steps.tag.outputs.prerelease }}"
-          echo "  draft: true (always — DL-26)"
+          echo "  draft: true (always — DL-27)"
 
       - name: Upload final release bundle
         uses: actions/upload-artifact@v4

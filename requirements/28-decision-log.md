@@ -974,7 +974,7 @@ entry justifying the relink commitment.
 
 ---
 
-## DL-25 — Reproducibility plumbing: SOURCE_DATE_EPOCH + post-build .eap repack + opt-in SDK digest pin
+## DL-26 — Reproducibility plumbing: SOURCE_DATE_EPOCH + post-build .eap repack + opt-in SDK digest pin
 
 Date: 2026-05-06  |  Status: accepted
 
@@ -1062,7 +1062,7 @@ artifacts.
 
 ---
 
-## DL-26 — Release workflow always creates a *draft* release; integrator publishes manually
+## DL-27 — Release workflow always creates a *draft* release; integrator publishes manually
 
 Date: 2026-05-06  |  Status: accepted
 

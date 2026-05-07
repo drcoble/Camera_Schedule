@@ -11,7 +11,7 @@
 #
 # The Makefile drives both via `make build-all`.
 #
-# BR-6 (reproducibility) — see DL-25.
+# BR-6 (reproducibility) — see DL-26.
 #
 # The integrator fills SDK_DIGEST at tag time by running:
 #

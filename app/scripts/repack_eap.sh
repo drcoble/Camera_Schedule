@@ -35,7 +35,7 @@
 set -euo pipefail
 
 EAP="${1:?usage: repack_eap.sh <eap-file>}"
-: "${SOURCE_DATE_EPOCH:?SOURCE_DATE_EPOCH must be set (BR-6 / DL-25)}"
+: "${SOURCE_DATE_EPOCH:?SOURCE_DATE_EPOCH must be set (BR-6 / DL-26)}"
 
 if [[ ! -f "$EAP" ]]; then
   echo "repack_eap: file not found: $EAP" >&2
