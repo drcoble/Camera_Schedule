@@ -31,6 +31,31 @@ already registers a `/status` node at boot (`ACAP.c:691`); a silent
 duplicate-path warning means our handler never reaches the wire.
 Renamed to `/state` per DL-22; OQ-16 captured the trap.
 
+**M8 shipped** at `v1.0.0-beta` (2026-05-07): first public 1.x
+release. License-audit CI gate
+(`.github/workflows/license-audit.yml` + `app/scripts/license_audit.py`,
+DL-25, NFR-6, DR-11), reproducible-build verification
+(`SOURCE_DATE_EPOCH` + `app/scripts/repack_eap.sh` + opt-in
+`SDK_DIGEST` Dockerfile pin + `.github/workflows/reproducibility.yml`,
+DL-26, BR-6), draft-only release-publish workflow
+(`.github/workflows/release.yml`, DL-27, DR-12), and the polished
+contributor docs (`CONTRIBUTING.md` with mandatory DCO sign-off
+per DL-24, `SECURITY.md` with GitHub-private-vulnerability-reporting-only,
+`CHANGELOG.md` Keep-a-Changelog 1.1.0, `docs/release-pipeline.md`
+contributor reference). Public release page on GitHub with
+**unsigned** `.eap` × 2 + SHA-256SUMS + `THIRD_PARTY_LICENSES.md`
++ `CHANGELOG.md`. Verification at
+`docs/verification/v1.0.0-beta-readiness.md` aggregates 9 PASS,
+1 PARTIAL (the literal 7-day MQTT firing observation, downgraded
+with structurally equivalent evidence), 0 FAIL. Stability evidence:
+25h32m soak on the OS 12 lab camera, 454 samples, RSS stable at
+9032 kB, 0 AppArmor denials, 99.78% HTTP 200, 0 recompute errors
+(soak-host-sleep gap caveat documented in the verification report).
+License-audit gate end-to-end-verified via the synthetic LGPL drop
+test (closed PR #2; CI run `25524553292` red-flagged in 6s). M8
+added no source-code changes — the v1.0.0-beta `.eap` is
+functionally identical to v0.7.0 plus build-determinism plumbing.
+
 **M4 + M5 code-complete and lab-installed; calendar-locked tags
 still pending.** The M4/M5 implementations ship inside v0.6.0 and
 are running on both cameras (10.1.40.113 / OS 12.10.61,
@@ -115,20 +140,23 @@ shape is documented in `app/src/M7_API_CONTRACT.md §1.3-1.4`;
 host fixture `test_export_import.c` exercises round-trip identity
 plus 10 reject cases (12/12 pass).
 
-Next milestone is **M8 — Beta release readiness** per
-[`IMPLEMENTATION.md`](./IMPLEMENTATION.md), tagged as `v1.0.0-beta`
-per [DL-23](./requirements/28-decision-log.md). M8 scope is
-license-audit CI gate (NFR-6), reproducible-build verification (BR-6),
-`CONTRIBUTING.md`/`SECURITY.md`/`CHANGELOG.md` polish, and a public
-release page with **unsigned** `.eap` files for both armv7hf and
-aarch64. Application Signing (formerly DL-11) and Artpec-8+ hardware
-verification are deferred — both are gates on promoting from
-`v1.0.0-beta` to `v1.0.0` GA, not on M8 itself. Don't tag v0.4.0 or
-v0.5.0 until both calendar gates above have produced observable fires
-from bound action rules. The 24-hour soak harness
-(`app/test/lab/soak_24h.sh`) is the post-M7-tag gating step that
-samples `/state.rss_kb`, AppArmor `system_log.cgi`, and recompute
-errors every 60 s for 24 h.
+**Next:** promotion from `v1.0.0-beta` to `v1.0.0` GA per
+[DL-23](./requirements/28-decision-log.md). Two gates remain:
+(1) Axis Application Signing CI integration (signing key not yet
+in hand; reopens BR-7 / NFR-5 once it is), (2) Artpec-8+ / aarch64
+hardware lab smoke (no Artpec-8+ unit available; CI builds and
+BR-6 reproducibility-verifies the artifact in the meantime). The
+soak harness should also be re-run under `caffeinate -d` (or moved
+to a non-sleeping host) for a literal 24h continuous window before
+GA, since the v1.0.0-beta soak had documented host-sleep gaps.
+
+Two retroactive tags (`v0.4.0`, `v0.5.0`) remain pending the M4
+fullmoon (2026-05-31) and M5 junesolstice (2026-06-21) firing-gate
+verifications. v0.6.0 was tagged ahead of them because its
+acceptance gate is operator UI + CRUD verification, not a calendar
+event; v0.6.0 stays as the rolling head for that branch of
+history. The contributor reference for the release pipeline is at
+[`docs/release-pipeline.md`](./docs/release-pipeline.md).
 
 ## Where to read first
 
