@@ -39,10 +39,16 @@ not target ACAP v12.
 - Compute solar, lunar, and seasonal event times for the camera's location/date.
 - Allow the operator to define named **schedule anchors** combining an event,
   an optional offset, and a recurrence policy.
-- Generate RFC 5545 iCalendar schedule definitions and write them to the
-  camera's Event Schedule API so any built-in action rule can subscribe.
-- Recompute and re-publish daily and on configuration / location / timezone
-  change.
+- Publish those times as **ACAP event topics** registered with the
+  device's event engine, so operators bind their existing camera action
+  rules to anchors via the standard Action Rules picker
+  ([DL-05](./requirements/28-decision-log.md)). The original draft
+  generated RFC 5545 iCalendar payloads against the Event Schedule REST
+  API; that API does not exist on shipping firmware
+  ([DL-05](./requirements/28-decision-log.md)) and the approach was
+  dropped before M2.
+- Recompute and re-arm timer sources daily, on configuration change, and
+  on location / timezone change.
 - Target **AXIS OS 11.11+ and AXIS OS 12.x** from a single mainline.
   Two `.eap` artifacts: armv7hf (Artpec-7) and aarch64 (Artpec-8+).
   The aarch64 build is verified by CI but not lab-tested for
