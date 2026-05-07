@@ -22,7 +22,6 @@ on:
 
 permissions:
   contents: write   # needed by `gh release create`
-  id-token: read
 
 jobs:
   build:
