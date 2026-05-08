@@ -1,5 +1,11 @@
 # Camera_Schedule
 
+[![License: MIT](https://img.shields.io/github/license/drcoble/Camera_Schedule)](./LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/drcoble/Camera_Schedule?include_prereleases&sort=semver)](https://github.com/drcoble/Camera_Schedule/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/drcoble/Camera_Schedule/ci.yml?branch=main&label=CI)](https://github.com/drcoble/Camera_Schedule/actions/workflows/ci.yml)
+[![License audit](https://img.shields.io/github/actions/workflow/status/drcoble/Camera_Schedule/license-audit.yml?branch=main&label=license%20audit)](https://github.com/drcoble/Camera_Schedule/actions/workflows/license-audit.yml)
+[![Reproducible build](https://img.shields.io/github/actions/workflow/status/drcoble/Camera_Schedule/reproducibility.yml?branch=main&label=reproducible%20build)](https://github.com/drcoble/Camera_Schedule/actions/workflows/reproducibility.yml)
+
 On-camera ACAP application that translates an Axis camera's geographic location
 and the current date into computed solar, lunar, and seasonal event times, then
 publishes those times into the camera's Event Schedules so existing camera
@@ -19,6 +25,24 @@ issue tracker, CI, and release artifacts are public. See [`LICENSE`](./LICENSE),
 [`CONTRIBUTING.md`](./CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md),
 [`SECURITY.md`](./SECURITY.md), and [`CHANGELOG.md`](./CHANGELOG.md); details in
 [`requirements/25-licensing-and-distribution.md`](./requirements/25-licensing-and-distribution.md).
+
+## Download
+
+Latest release: **[`v1.0.0-beta`](https://github.com/drcoble/Camera_Schedule/releases/tag/v1.0.0-beta)** (2026-05-07).
+Pick the `.eap` matching your camera architecture:
+
+| Architecture | Direct download | Targets |
+|---|---|---|
+| armv7hf | [`camera-schedule-armv7hf.eap`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/camera-schedule-armv7hf.eap) | Artpec-7 (and earlier) on AXIS OS 11.11+ or OS 12.x |
+| aarch64 | [`camera-schedule-aarch64.eap`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/camera-schedule-aarch64.eap) | Artpec-8+ on OS 12.x (CI-verified, not yet lab-smoked) |
+
+Verify integrity with [`SHA-256SUMS.txt`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/SHA-256SUMS.txt) — or rebuild from source and confirm byte-identical SHA-256 per [`docs/release-pipeline.md`](./docs/release-pipeline.md). The release page also bundles
+[`THIRD_PARTY_LICENSES.md`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/THIRD_PARTY_LICENSES.md)
+and the full
+[`CHANGELOG.md`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/CHANGELOG.md).
+
+Install via the camera's Apps UI, or via VAPIX from the command line — see
+[`CONTRIBUTING.md`](./CONTRIBUTING.md#building-locally) for the build-from-source loop.
 
 ## Why this exists
 
@@ -75,15 +99,15 @@ not target ACAP v12.
 
 The milestone-driven implementation plan is in
 [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) — nine milestones (M0…M8)
-each ending in a tagged release. M0–M7 are shipped through `v0.7.0`.
-**M8 — beta release readiness — is currently in flight** and produces
-`v1.0.0-beta`: license-audit CI gate, reproducible-build verification,
-`CONTRIBUTING.md` / `SECURITY.md` / `CHANGELOG.md` polish, and a public
-release page with both `.eap` artifacts. See
-[`CHANGELOG.md`](./CHANGELOG.md) for the per-tag history. Promotion
-from beta to GA (`v1.0.0`) is gated on Application Signing CI
-integration and Artpec-8+ hardware smoke per
-[DL-23](./requirements/28-decision-log.md).
+each ending in a tagged release. M0–M8 are shipped, with `v1.0.0-beta`
+landing M8 (beta release readiness): license-audit CI gate,
+reproducible-build verification, `CONTRIBUTING.md` / `SECURITY.md` /
+`CHANGELOG.md` polish, and a public release page with both `.eap`
+artifacts. See [`CHANGELOG.md`](./CHANGELOG.md) for the per-tag
+history and [`docs/release-pipeline.md`](./docs/release-pipeline.md)
+for the release machinery. Promotion from beta to GA (`v1.0.0`) is
+gated on Application Signing CI integration and Artpec-8+ hardware
+smoke per [DL-23](./requirements/28-decision-log.md).
 
 ## Requirements layout
 
