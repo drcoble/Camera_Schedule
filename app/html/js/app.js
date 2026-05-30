@@ -9,6 +9,24 @@
     if (el) el.textContent = value;
   }
 
+  // Render a URL as a safe external link. Only http(s) URLs become
+  // anchors; anything else falls back to plain text.
+  function setLink(id, url) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = "";
+    if (typeof url === "string" && /^https?:\/\//.test(url)) {
+      var a = document.createElement("a");
+      a.href = url;
+      a.textContent = url;
+      a.rel = "noopener noreferrer";
+      a.target = "_blank";
+      el.appendChild(a);
+    } else {
+      el.textContent = url || "—";
+    }
+  }
+
   function showError(message) {
     var el = document.getElementById("about-error");
     if (!el) return;
@@ -27,6 +45,7 @@
       setText("about-name", data.name || "—");
       setText("about-version", data.version || "—");
       setText("about-arch", data.arch || "—");
+      setLink("about-repo", data.repo);
     })
     .catch(function (err) {
       showError("Could not load build info: " + err.message);
