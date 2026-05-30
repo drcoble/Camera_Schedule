@@ -285,7 +285,7 @@
     var id   = btn.dataset.id;
     var name = btn.dataset.name;
 
-    if (!window.confirm("Delete calendar entry "" + name + ""?")) return;
+    if (!window.confirm("Delete calendar entry \"" + name + "\"?")) return;
 
     fetch("calendar?id=" + encodeURIComponent(id), {
       method: "DELETE",
