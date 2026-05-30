@@ -555,23 +555,40 @@ static void load_operator_anchors_locked(void) {
     LOG("anchors_init: loaded %d operator anchors", loaded);
 }
 
-// Load the schedule_enabled.json cache. Missing/malformed file ⇒ start
-// with an empty object (everything enabled). Caller must hold lock.
+// Build a fresh enable store with every built-in event defaulted to OFF
+// (DL-29) and persist it (best effort). A clean install fires nothing
+// until the operator opts in per event. Operator anchors and calendar
+// entries created later are absent from the store and fall back to
+// enabled per the DL-18 absent-key rule. Caller must hold the lock and
+// must have populated the built-in slice (seed_built_ins) first.
+static void seed_default_enabled_store_locked(void) {
+    if (g_enabled_store) cJSON_Delete(g_enabled_store);
+    g_enabled_store = cJSON_CreateObject();
+    for (size_t i = 0; i < g_n_built_in; i++)
+        cJSON_AddBoolToObject(g_enabled_store, g_anchors[i].id, 0);
+    if (save_enabled_store_locked() != 0)
+        LOG_WARN("anchors_init: could not persist seeded enable store; "
+                 "built-ins remain off in memory this session");
+}
+
+// Load the schedule_enabled.json cache. On a clean install (file
+// absent) or a malformed/quarantined file, seed the default store with
+// every built-in OFF (DL-29). Caller must hold lock.
 static void load_enabled_store_locked(void) {
     if (g_enabled_store) {
         cJSON_Delete(g_enabled_store);
         g_enabled_store = NULL;
     }
     if (!ACAP_FILE_Exists("localdata/schedule_enabled.json")) {
-        g_enabled_store = cJSON_CreateObject();
+        seed_default_enabled_store_locked();   // clean install
         return;
     }
     cJSON* o = ACAP_FILE_Read("localdata/schedule_enabled.json");
     if (!o || !cJSON_IsObject(o)) {
         if (o) cJSON_Delete(o);
-        LOG_ERROR("anchors_init: schedule_enabled.json malformed; starting empty");
+        LOG_ERROR("anchors_init: schedule_enabled.json malformed; seeding defaults");
         persistence_quarantine("localdata/schedule_enabled.json");
-        g_enabled_store = cJSON_CreateObject();
+        seed_default_enabled_store_locked();
         return;
     }
     g_enabled_store = o;

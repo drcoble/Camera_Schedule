@@ -92,10 +92,15 @@ is wired up in the camera's own UI.
   `localdata/schedule_enabled.json`, keyed by schedule ID, with the
   following contract:
 
-  - **Default-enabled.** Absent keys SHALL be treated as enabled. A
-    newly added built-in (introduced by an `.eap` upgrade) or
-    operator-defined schedule SHALL fire on its next computed time
-    until the operator explicitly disables it.
+  - **Default state.** Absent keys SHALL be treated as enabled,
+    *except* on a clean install: when no `schedule_enabled.json` is
+    present, the app SHALL seed the store with every built-in event
+    explicitly disabled, so a fresh install fires nothing until the
+    operator opts in per event ([DL-29](./28-decision-log.md)).
+    Operator-defined schedules, and built-ins newly introduced by a
+    later `.eap` upgrade (where the store already exists), retain the
+    absent-key = enabled default and SHALL fire on their next computed
+    time until the operator explicitly disables them.
   - **Suppress firing, preserve declaration.** Disabling a schedule
     SHALL prevent the recompute pipeline from arming a GLib timer for
     that schedule (see [FR-9.2](./09-event-firing.md) and

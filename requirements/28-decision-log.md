@@ -529,7 +529,7 @@ change it.
 
 ## DL-18 — Schedule enable/disable: declared-but-suppressed firing model
 
-Date: 2026-05-05  |  Status: accepted
+Date: 2026-05-05  |  Status: accepted (built-in clean-install default refined by [DL-29](#dl-29--built-in-events-default-to-off-on-clean-install))
 
 **Decision.** Enabling and disabling individual schedules (built-in
 and operator-defined) is controlled entirely on the **firing path**,
@@ -1178,3 +1178,61 @@ source-code or requirement is superseded.
 **References.** [BR-6](./22-build-and-packaging.md),
 [../app/Dockerfile](../app/Dockerfile),
 [NFR-1](./20-non-functional.md).
+
+## DL-29 — Built-in events default to OFF on clean install
+
+Date: 2026-05-29  |  Status: accepted
+
+**Decision.** On a **clean install** — when no
+`localdata/schedule_enabled.json` exists — the app SHALL seed that
+store with every built-in event ID explicitly set to `false`, so a
+fresh install fires nothing until the operator enables events one by
+one from the Schedule UI. The same seeding applies when the store file
+is found malformed and quarantined (a fresh start is treated like a
+clean install). Implemented in `seed_default_enabled_store_locked()` /
+`load_enabled_store_locked()` in `app/src/anchors.c`; the seeded store
+is persisted best-effort, and held in memory regardless so the default
+holds even if the write fails.
+
+**Scope — what is NOT changed.** This refines exactly one clause of
+[DL-18](#dl-18--schedule-enabledisable-declared-but-suppressed-firing-model):
+its "all schedules default to enabled on first use." Everything else in
+DL-18 stands:
+
+- The **absent-key = enabled** rule is intact. The clean-install path
+  pre-seeds explicit `false` keys for built-ins rather than changing
+  what an absent key means.
+- **Operator-defined** anchors and calendar entries are *not* seeded;
+  they are absent from the store and therefore default enabled, matching
+  the existing create-time default (`anchor.enabled = 1`). A clean
+  install has no operator schedules anyway, so "all events on install"
+  is exactly the 22 built-ins.
+- **Upgrade-added built-ins.** A built-in introduced by a *later* `.eap`
+  upgrade lands against an already-existing store, so it is absent →
+  enabled, unchanged from DL-18 / FR-11.7. Only the clean-install set is
+  seeded off.
+
+**Rationale.** Firing all 22 solar/lunar/seasonal topics the moment the
+app starts is a noisy, surprising default: every bound action rule the
+operator later wires would begin triggering immediately, and the event
+bus carries traffic the operator never asked for. Opt-in is the safer
+posture for a scheduler whose whole job is to drive other automation —
+the operator turns on precisely the events they intend to use.
+
+**Removed / changed.**
+
+- [FR-11.7](./11-configuration-ui.md) "Default-enabled" clause is
+  rewritten as "Default state": clean install seeds built-ins off;
+  absent-key = enabled otherwise.
+- [DL-18](#dl-18--schedule-enabledisable-declared-but-suppressed-firing-model)
+  status annotated to point here.
+
+**Note — existing installs.** `localdata/` survives `.eap` upgrade
+(DL-18 / FR-12), so cameras that already have a `schedule_enabled.json`
+keep their current toggles; this default only governs genuinely fresh
+installs (or a deliberately cleared store).
+
+**References.**
+[FR-11.7](./11-configuration-ui.md),
+[DL-18](#dl-18--schedule-enabledisable-declared-but-suppressed-firing-model),
+[../app/src/anchors.c](../app/src/anchors.c).
