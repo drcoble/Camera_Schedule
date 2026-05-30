@@ -24,18 +24,24 @@ are all public.
 
 ## Download
 
-Pick the `.eap` matching your camera's SoC architecture from the
-[latest release](https://github.com/drcoble/Camera_Schedule/releases):
+Latest release: **[`v1.0.1`](https://github.com/drcoble/Camera_Schedule/releases/tag/v1.0.1)** (2026-05-30).
+Pick the `.eap` matching your camera's SoC architecture:
 
-| Architecture | Targets |
-|---|---|
-| armv7hf | Artpec-7 (and earlier) on AXIS OS 11.11+ or OS 12.x |
-| aarch64 | Artpec-8+ on OS 12.x |
+| Architecture | Direct download | Targets |
+|---|---|---|
+| armv7hf | [`camera-schedule-armv7hf.eap`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.1/camera-schedule-armv7hf.eap) | Artpec-7 (and earlier) on AXIS OS 11.11+ or OS 12.x |
+| aarch64 | [`camera-schedule-aarch64.eap`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.1/camera-schedule-aarch64.eap) | Artpec-8+ on OS 12.x (CI-built, not yet hardware-smoked) |
 
 Install through the camera's **Apps** UI (upload the `.eap`, then Start), or via
-VAPIX from the command line. Verify downloads against the release's
-`SHA-256SUMS.txt`, or rebuild from source and confirm a byte-identical hash (the
-build is reproducible — see [`docs/release-pipeline.md`](./docs/release-pipeline.md)).
+VAPIX from the command line. Verify your download against
+[`SHA-256SUMS.txt`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.1/SHA-256SUMS.txt),
+or rebuild from source and confirm a byte-identical hash (the build is
+reproducible — see [`docs/release-pipeline.md`](./docs/release-pipeline.md)). The
+`.eap` artifacts are currently **unsigned**.
+
+> **New in v1.0.1:** built-in solar/lunar/seasonal events now ship **disabled** on
+> a fresh install — enable the ones you want from the Schedule page. See the
+> [changelog](./CHANGELOG.md#101--2026-05-30) for the full list of fixes.
 
 ## What it computes
 
