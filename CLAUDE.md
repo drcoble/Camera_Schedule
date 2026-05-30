@@ -346,6 +346,21 @@ build context but not in the `.eap`, so zero AXEvent topics declared
 and the camera's Action Rules picker stayed empty. Fixed in commit
 `42e671b`.
 
+### Static-asset cache-busting (DL-28)
+
+The bundled HTML differs from the in-tree HTML: a build step in
+`app/Dockerfile` (just before `acap-build`) appends `?v=<token>` to
+every `js/*.js` and `css/*.css` `<script>`/`<link>` ref, where `token`
+is a 12-char SHA-256 over the JS+CSS *content*. AXIS serves static
+files with no `Cache-Control`, so without this browsers run stale JS
+across updates (this bit us on the OS 11 lab camera). Don't hand-edit
+`?v=` into the HTML source — leave bare refs; the build injects it. The
+token is content-derived (not the app version) so it busts on every
+asset change including same-version hot-fixes, and is deterministic so
+BR-6 reproducibility holds. If a UI fix looks "not deployed," confirm
+the *served* asset (`curl .../js/foo.js`) vs the browser cache before
+chasing the binary.
+
 ### CI artifacts
 
 Every push and PR runs the full matrix (`build × {armv7hf, aarch64}` +
