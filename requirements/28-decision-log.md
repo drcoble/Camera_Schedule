@@ -1120,3 +1120,61 @@ the assembly works before pushing the actual tag.
 **References.** [DR-12](./25-licensing-and-distribution.md),
 [DL-23](./28-decision-log.md),
 [../.github/workflows/release.yml](../.github/workflows/release.yml).
+
+## DL-28 — Static front-end assets cache-busted by content-hash URL query, not Cache-Control headers
+
+Date: 2026-05-29  |  Status: accepted
+
+**Decision.** Append a `?v=<token>` query string to every `js/*.js`
+and `css/*.css` `<script>`/`<link>` reference in the shipped HTML.
+The token is a 12-character SHA-256 over the concatenated **content**
+of the JS + CSS files, computed at build time and injected by `sed`
+in `app/Dockerfile` immediately before `acap-build`. The HTML source
+in-tree carries bare refs (no `?v=`); the token exists only in the
+built `.eap`.
+
+**Rationale.** AXIS OS serves an ACAP's `html/`, `js/`, and `css/`
+through the system web server with only `ETag` / `Last-Modified` and
+**no `Cache-Control`** header. Browsers therefore apply heuristic
+freshness and reuse cached JS/CSS across app updates without
+revalidating — observed live on the OS 11 lab camera (10.1.40.160)
+after a hot-fix redeploy: the camera served the corrected
+`anchors.js` / `calendar.js` / `app.js` (verified by `curl`) but the
+browser ran the stale cached copies, reproducing the very "Loading…"
++ dead-button + missing-repo-link symptoms the redeploy had fixed.
+
+We cannot set response headers on system-served static files (the
+manifest `httpConfig` only routes `fastCgi` paths into our app, and
+the dynamic JSON endpoints already send `Cache-Control: no-cache` via
+`ACAP_HTTP_Header_JSON`). Serving the assets through FastCGI instead
+is not viable: the vendored `ACAP_HTTP_Respond_String` caps at 4096
+bytes and `ACAP_HTTP_Header_FILE` forces an attachment download. URL
+versioning is the standard substitute that lives entirely in files we
+control.
+
+**Why content-hash, not the app version.** The token must change
+whenever asset bytes change, *independent* of the manifest version.
+During the 2026-05-29 hot-fix session, `anchors.js` / `calendar.js`
+were deployed twice with different content but both as version
+`1.0.0`; a `?v=<app-version>` token would have been identical across
+both and shipped the second fix stale. A content hash also covers
+local/dev builds and any future page automatically (the `sed` matches
+any bare `js/*.js` / `css/*.css` ref).
+
+**Determinism (BR-6).** The token derives only from JS/CSS content, so
+the same commit yields the same token and byte-identical HTML; the
+reproducibility gate is preserved. The hash is computed before the
+HTML is rewritten, so rewriting HTML never perturbs the token.
+
+**Scope.** Only sub-resources are versioned. The HTML documents
+themselves are left to the browser's prompt top-level-navigation
+revalidation (empirically already fresh: the OS 11 browser had the new
+`about.html`, only the JS was stale). `<meta http-equiv="Cache-Control">`
+was rejected — Chrome ignores it for the document.
+
+**Removed / changed.** None. New build-time behavior only; no
+source-code or requirement is superseded.
+
+**References.** [BR-6](./22-build-and-packaging.md),
+[../app/Dockerfile](../app/Dockerfile),
+[NFR-1](./20-non-functional.md).

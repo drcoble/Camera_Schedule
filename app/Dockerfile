@@ -43,6 +43,30 @@ WORKDIR /opt/app
 # artifacts and host-test outputs.
 COPY . /opt/app/
 
+# Cache-bust the static front-end assets (DL-28).
+#
+# AXIS serves html/, js/, css/ via the system web server with only
+# ETag/Last-Modified and NO Cache-Control, so browsers heuristically
+# cache JS/CSS across app updates and serve stale code (observed on the
+# OS 11 lab camera after a hot-fix redeploy). We can't set response
+# headers on system-served static files, so we version the sub-resource
+# URLs instead: append ?v=<token> to every js/css <script>/<link> ref.
+# When asset content changes the URL changes, forcing a fresh fetch.
+#
+# The token is a 12-char SHA-256 over the JS+CSS *content* (not the app
+# version): two builds at the same version with different asset content
+# must get different tokens, or a hot-fix ships stale. Deterministic —
+# same content => same token => byte-identical html => reproducible
+# (BR-6). HTML is left to the browser's prompt top-level revalidation;
+# only sub-resources are versioned.
+RUN ASSET_VER=$(find html/js html/css -type f \( -name '*.js' -o -name '*.css' \) \
+        | LC_ALL=C sort | xargs cat | sha256sum | cut -c1-12) \
+    && sed -i -E \
+        "s#href=\"(css/[^\"]+\.css)\"#href=\"\1?v=${ASSET_VER}\"#g; \
+         s#src=\"(js/[^\"]+\.js)\"#src=\"\1?v=${ASSET_VER}\"#g" \
+        html/*.html \
+    && echo "asset cache-bust token: ${ASSET_VER}"
+
 # Source the SDK environment (architecture-specific) and build the
 # .eap. acap-build emits camera_schedule_<version>_<arch>.eap; the
 # Makefile renames it to camera-schedule-<arch>.eap.
