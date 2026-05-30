@@ -228,6 +228,7 @@
 
   function showForm(entry) {
     clearErrors();
+    btnSubmit.disabled = false; // re-enable after a prior save left it disabled
     if (entry) {
       editingId = entry.id;
       formHeading.textContent = "Edit calendar entry";

@@ -215,6 +215,7 @@
   // -----------------------------------------------------------------------
   function showForm(anchor) {
     clearErrors();
+    btnSubmit.disabled = false; // re-enable after a prior save left it disabled
     if (anchor) {
       // Edit mode
       editingId = anchor.id;
