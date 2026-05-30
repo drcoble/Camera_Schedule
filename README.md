@@ -6,141 +6,206 @@
 [![License audit](https://img.shields.io/github/actions/workflow/status/drcoble/Camera_Schedule/license-audit.yml?branch=main&label=license%20audit)](https://github.com/drcoble/Camera_Schedule/actions/workflows/license-audit.yml)
 [![Reproducible build](https://img.shields.io/github/actions/workflow/status/drcoble/Camera_Schedule/reproducibility.yml?branch=main&label=reproducible%20build)](https://github.com/drcoble/Camera_Schedule/actions/workflows/reproducibility.yml)
 
-On-camera ACAP application that translates an Axis camera's geographic location
-and the current date into computed solar, lunar, and seasonal event times, then
-publishes those times into the camera's Event Schedules so existing camera
-action rules (recording, day/night, IR illumination, PTZ guard tours, MQTT
-publish, etc.) can fire on those events.
+An on-camera ACAP application for Axis network cameras. It turns the camera's
+geographic location and the current date into computed **solar, lunar, and
+seasonal event times**, then publishes those moments as **camera event topics**.
+Operators bind their existing action rules — recording, day/night switching, IR
+illumination, PTZ guard tours, MQTT publishing — to events like *Sunset*,
+*Full moon*, or *June solstice* through the camera's standard Action Rules
+picker.
 
-The current release is `v1.0.0-beta`. The application is feature-complete and
-lab-verified on AXIS OS 11.11+ and OS 12.x running on Artpec-7 / armv7hf.
-The aarch64 build is produced by CI and attached to the release page but has
-not yet been smoke-tested on Artpec-8+ hardware. The `.eap` artifacts are
-unsigned for the beta tag; both gates are documented in
-[DL-23](./requirements/28-decision-log.md) and lift before promotion to
-`v1.0.0` GA.
+AXIS OS has no native sunrise/sunset trigger: the DayNight API reacts to ambient
+lux, and Event Schedules support only fixed time-of-day rules that can't
+recompute against location and date. This app fills that gap entirely on-device,
+with no cloud dependency and no external services.
 
-**This project is open source under the [MIT License](./LICENSE).** Source,
-issue tracker, CI, and release artifacts are public. See [`LICENSE`](./LICENSE),
-[`CONTRIBUTING.md`](./CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md),
-[`SECURITY.md`](./SECURITY.md), and [`CHANGELOG.md`](./CHANGELOG.md); details in
-[`requirements/25-licensing-and-distribution.md`](./requirements/25-licensing-and-distribution.md).
+The app runs MIT-licensed and open source — source, CI, and release artifacts
+are all public.
 
 ## Download
 
-Latest release: **[`v1.0.0-beta`](https://github.com/drcoble/Camera_Schedule/releases/tag/v1.0.0-beta)** (2026-05-07).
-Pick the `.eap` matching your camera architecture:
+Pick the `.eap` matching your camera's SoC architecture from the
+[latest release](https://github.com/drcoble/Camera_Schedule/releases):
 
-| Architecture | Direct download | Targets |
+| Architecture | Targets |
+|---|---|
+| armv7hf | Artpec-7 (and earlier) on AXIS OS 11.11+ or OS 12.x |
+| aarch64 | Artpec-8+ on OS 12.x |
+
+Install through the camera's **Apps** UI (upload the `.eap`, then Start), or via
+VAPIX from the command line. Verify downloads against the release's
+`SHA-256SUMS.txt`, or rebuild from source and confirm a byte-identical hash (the
+build is reproducible — see [`docs/release-pipeline.md`](./docs/release-pipeline.md)).
+
+## What it computes
+
+All times are computed on-device from the camera's stored latitude/longitude and
+IANA timezone, using Meeus astronomical algorithms (no network calls, no lookup
+tables). The app declares **22 built-in event topics**:
+
+- **Solar (10)** — sunrise, sunset, solar noon, solar midnight, and the civil /
+  nautical / astronomical dawn-and-dusk twilight pairs. Meeus solar-position
+  model.
+- **Lunar (8)** — moonrise, moonset, lunar transit, lunar anti-transit (daily,
+  parallax-aware via hourly altitude sampling), plus the four phase events: new
+  moon, first quarter, full moon, last quarter.
+- **Seasonal (4)** — March equinox, June solstice, September equinox, December
+  solstice. Hemisphere-aware labels (e.g. *Longest Day* / *Shortest Day*) render
+  in the Action Rules UI based on the camera's latitude.
+
+On top of the built-ins, operators define their own topics at runtime:
+
+- **Schedule anchors** — a named event built from a base event plus an optional
+  offset and a recurrence/duration policy. Four variants: pulse, stateful-offset,
+  paired-interval, and numeric-threshold (e.g. "fire when the moon is more than
+  N% illuminated").
+- **Calendar entries** — user-defined single dates, date ranges, and annually
+  recurring dates.
+
+At polar latitudes where the sun or moon never rises/sets on a given day, the
+rise/set topics simply don't fire for that day while noon / midnight / transit
+topics stay armed.
+
+## Architecture
+
+The application is a single ACAP binary that boots a GLib main loop, serves a
+web UI and a JSON API over FastCGI, and arms GLib timer sources that fire camera
+event topics at the right local times.
+
+```
+                Camera geolocation + clock (VAPIX / D-Bus)
+                                  |
+                                  v
+   astro/ ──► solar.c · lunar.c · seasonal.c   (Meeus algorithms)
+                                  |
+                                  v
+   timers.c  ── arms GLib timer sources ──►  AXEvent topics
+      ▲                                          │ fire
+      │ recompute                                ▼
+   anchors.c · calendar.c                  camera Action Rules
+      │  (operator-defined topics)         (recording, MQTT, PTZ, …)
+      │
+   persistence.c ──► localdata/*.json  (atomic write + schema validate)
+
+   main.c  ── GLib main loop · FastCGI endpoints · AXParameters · UI
+   status.c ── 50-entry recompute ring buffer ──► GET /state
+```
+
+### Source map (`app/src/`)
+
+| File | Responsibility |
+|---|---|
+| `main.c` | Boots the GLib loop, registers FastCGI endpoints and AXParameters, serves the UI, rebinds hemisphere-aware seasonal labels on boot and location change. |
+| `timers.c` | The scheduler core. Owns the four timer-slot patterns and `timers_recompute_now()`. |
+| `astro/solar.c` · `lunar.c` · `seasonal.c` | Self-contained astronomical computations (Meeus). Built and unit-tested on the host. |
+| `anchors.c` | Operator-defined schedule anchors: CRUD, persistence, and timer-slot construction. |
+| `calendar.c` | User calendar entries: single date, date range, annual recurrence. |
+| `persistence.c` | Atomic JSON writer — write-temp → fsync → parse-back → schema-validate → rename. |
+| `status.c` | In-memory recompute ring buffer (50 entries, mutex-protected). |
+| `log.h` | Shared logging macros, including the runtime-gated `LOG_DBG`. |
+
+Vendored under `app/src/acap/`: the MIT-licensed `ACAP.c/h` event/HTTP framework
+and `cJSON.c/h`.
+
+### The four scheduler patterns
+
+`timers.c` coexists four kinds of timer slots, distinguished by how often they
+re-arm and what triggers a rebuild:
+
+| Pattern | Events | Cadence | Re-arm |
+|---|---|---|---|
+| **Daily slots** | 10 solar + 4 daily lunar | per UTC date | recomputed at local civil midnight |
+| **Phase slots** | 4 lunar phases | ~29.5 d | re-arm in own fire callback; armed once at boot |
+| **Season slots** | 4 seasonal | ~91 d | re-arm in own fire callback; armed once at boot |
+| **Anchor slots** | operator anchors | dynamic | rebuilt per recompute from anchor definitions |
+
+Daily slots are recomputed when the date rolls over, on configuration change,
+and on location/timezone change. Phase, season, and numeric-threshold-day slots
+are observer-independent and aren't disturbed by recomputes that don't move the
+satisfying-day set.
+
+Each topic can be individually enabled or disabled. Disabling suppresses firing
+only — the topic stays declared on the event engine so existing action-rule
+bindings don't break. The gate is a single check at the top of every slot-arm
+helper.
+
+### Web UI and JSON API
+
+The settings page (`schedule.html`) plus four more HTML pages
+(`location`, `anchors`, `calendar`, `about`) are served from the camera. All
+assets are bundled locally — no external CDN. The pages talk to **eleven FastCGI
+endpoints**:
+
+| Endpoint | Access | Purpose |
 |---|---|---|
-| armv7hf | [`camera-schedule-armv7hf.eap`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/camera-schedule-armv7hf.eap) | Artpec-7 (and earlier) on AXIS OS 11.11+ or OS 12.x |
-| aarch64 | [`camera-schedule-aarch64.eap`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/camera-schedule-aarch64.eap) | Artpec-8+ on OS 12.x (CI-verified, not yet lab-smoked) |
+| `about` | viewer | App name, version, architecture. |
+| `location` | admin | Read / override the camera's lat/lon and timezone. |
+| `anchors` | admin | CRUD for operator schedule anchors. |
+| `calendar` | admin | CRUD for calendar entries. |
+| `events` | admin | List declared topics and their enable state. |
+| `events_today` | viewer | Today's computed firing times. |
+| `state` | viewer | Live status snapshot + recompute ring buffer + RSS. |
+| `recompute` | admin | Force a recompute/re-arm now. |
+| `export` | admin | Download full config as a versioned JSON envelope. |
+| `import` | admin | Upload + schema-validate a config envelope. |
+| `debug` | admin | Toggle runtime debug logging. |
 
-Verify integrity with [`SHA-256SUMS.txt`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/SHA-256SUMS.txt) — or rebuild from source and confirm byte-identical SHA-256 per [`docs/release-pipeline.md`](./docs/release-pipeline.md). The release page also bundles
-[`THIRD_PARTY_LICENSES.md`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/THIRD_PARTY_LICENSES.md)
-and the full
-[`CHANGELOG.md`](https://github.com/drcoble/Camera_Schedule/releases/download/v1.0.0-beta/CHANGELOG.md).
+Four scalar settings are also exposed as **AXParameters** under
+`root.Camera_schedule.*` (`LookaheadDays`, `EventNamePrefix`,
+`PollIntervalSeconds`, `DebugLogging`), so they're configurable through standard
+camera tooling.
 
-Install via the camera's Apps UI, or via VAPIX from the command line — see
-[`CONTRIBUTING.md`](./CONTRIBUTING.md#building-locally) for the build-from-source loop.
+### State and persistence
 
-## Why this exists
+Operator configuration persists as JSON under `localdata/`:
+`anchors.json`, `calendar.json`, and `schedule_enabled.json` (the enable map).
+Every write goes through the atomic helper in `persistence.c`. Config
+export/import uses a versioned `camera-schedule.config.v1` envelope with schema
+validation on import.
 
-AXIS OS exposes **no native sunrise/sunset trigger**. The DayNight API switches
-the IR-cut filter on ambient lux only, and Event Schedules support fixed
-time-of-day RRULEs but cannot recompute against location/date. The only prior
-art is a third-party "Daybreak Me" ACAP app, which is unmaintained and does
-not target ACAP v12.
+The camera's geolocation service remains the source of truth for lat/lon; manual
+overrides write back to it via `/axis-cgi/geolocation/set.cgi` rather than
+keeping a parallel store.
 
-## Scope at a glance
+## Building from source
 
-**In scope**
-- Run as an ACAP application installed directly on Axis cameras.
-  Artifacts are unsigned for the `v1.0.0-beta` release; signing is
-  reopened post-beta when the project's Axis Application Signing key
-  is in hand (see [DL-23](./requirements/28-decision-log.md)).
-- Read the camera's configured geo-location and timezone from the camera itself.
-- Compute solar, lunar, and seasonal event times for the camera's location/date.
-- Allow the operator to define named **schedule anchors** combining an event,
-  an optional offset, and a recurrence policy.
-- Publish those times as **ACAP event topics** registered with the
-  device's event engine, so operators bind their existing camera action
-  rules to anchors via the standard Action Rules picker
-  ([DL-05](./requirements/28-decision-log.md)). The original draft
-  generated RFC 5545 iCalendar payloads against the Event Schedule REST
-  API; that API does not exist on shipping firmware
-  ([DL-05](./requirements/28-decision-log.md)) and the approach was
-  dropped before M2.
-- Recompute and re-arm timer sources daily, on configuration change, and
-  on location / timezone change.
-- Target **AXIS OS 11.11+ and AXIS OS 12.x** from a single mainline.
-  Two `.eap` artifacts: armv7hf (Artpec-7) and aarch64 (Artpec-8+).
-  The aarch64 build is verified by CI but not lab-tested for
-  `v1.0.0-beta` — Artpec-8+ hardware smoke is a gate on promoting
-  to `v1.0.0` GA (DL-23).
-- Conform to ACAP v12 sandboxing, dynamic-user, and D-Bus
-  credential requirements uniformly across both supported OS lines.
-  Application signing is the long-term posture (NFR-5/BR-7) but
-  deferred for the beta tag.
+The build is fully Dockerized — the only host requirement is Docker (Buildx) and
+`make`. The toolchain, SDK, manifest validator, and `acap-build` packaging all
+run inside the pinned `axisecp/acap-native-sdk` image.
 
-**Out of scope**
-- Bundled holiday/locale database (Easter, Ramadan, etc.). Calendar input is
-  user-defined dates and date-ranges only.
-- Driving recordings, action rules, or guard tours **directly** — the app
-  exposes schedules; the operator wires them up in the existing camera
-  action-rule UI.
-- Cloud sync, multi-camera fleet orchestration, or a central UI. Configuration
-  is per-camera.
-- GPS hardware integration (camera's stored lat/lon is authoritative).
-- Overriding the lux-based DayNight API.
-- Models predating armv7hf / aarch64 SoCs covered by ACAP v11/v12.
+```sh
+make -C app build-armv7hf   # OS 11.11+ and OS 12 on Artpec-7
+make -C app build-aarch64   # OS 12 on Artpec-8+
+make -C app build-all       # both
+make -C app help            # menu
+```
 
-## Roadmap
+Outputs land in `dist/camera-schedule-<arch>.eap`. The astronomical modules and
+config round-trip are unit-tested on the host under `app/test/host/`. See
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full build/test/install loop and
+DCO sign-off policy.
 
-The milestone-driven implementation plan is in
-[`IMPLEMENTATION.md`](./IMPLEMENTATION.md) — nine milestones (M0…M8)
-each ending in a tagged release. M0–M8 are shipped, with `v1.0.0-beta`
-landing M8 (beta release readiness): license-audit CI gate,
-reproducible-build verification, `CONTRIBUTING.md` / `SECURITY.md` /
-`CHANGELOG.md` polish, and a public release page with both `.eap`
-artifacts. See [`CHANGELOG.md`](./CHANGELOG.md) for the per-tag
-history and [`docs/release-pipeline.md`](./docs/release-pipeline.md)
-for the release machinery. Promotion from beta to GA (`v1.0.0`) is
-gated on Application Signing CI integration and Artpec-8+ hardware
-smoke per [DL-23](./requirements/28-decision-log.md).
+## Compatibility
 
-## Requirements layout
+- **AXIS OS 11.11+ and OS 12.x** from a single mainline.
+- Two artifacts: **armv7hf** (Artpec-7 and earlier) and **aarch64** (Artpec-8+).
+- Conforms to ACAP v12 sandboxing, dynamic-user, and D-Bus credential
+  requirements.
 
-Detailed requirements live under [`requirements/`](./requirements):
+## Project docs
 
-### Functional
+- [`CHANGELOG.md`](./CHANGELOG.md) — per-release history.
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) · [`SECURITY.md`](./SECURITY.md) ·
+  [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) — contribution, vulnerability
+  reporting, and conduct.
+- [`docs/release-pipeline.md`](./docs/release-pipeline.md) — build determinism
+  and the release machinery.
+- [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) — milestone roadmap.
+- [`requirements/`](./requirements) — detailed functional and cross-cutting
+  requirements, plus the append-only [decision log](./requirements/28-decision-log.md).
 
-| File | Area |
-|---|---|
-| [01-geo-location.md](./requirements/01-geo-location.md) | Reading camera lat/lon, manual override |
-| [02-time-and-timezone.md](./requirements/02-time-and-timezone.md) | Camera clock, IANA timezone, DST |
-| [03-solar-events.md](./requirements/03-solar-events.md) | Sunrise, sunset, solar noon/midnight, twilights |
-| [04-lunar-events.md](./requirements/04-lunar-events.md) | Moonrise/set, lunar transit, phases, illumination |
-| [05-seasonal-events.md](./requirements/05-seasonal-events.md) | Solstices, equinoxes, longest/shortest day |
-| [06-user-calendar-dates.md](./requirements/06-user-calendar-dates.md) | Operator-defined dates and date ranges |
-| [07-schedule-anchors.md](./requirements/07-schedule-anchors.md) | Anchor primitive: event + offset + duration |
-| [08-event-registration.md](./requirements/08-event-registration.md) | Declare ACAP event topics at boot via the AXEvent API |
-| [09-event-firing.md](./requirements/09-event-firing.md) | GLib timer sources fire registered topics at the right local times |
-| [10-recompute-cadence.md](./requirements/10-recompute-cadence.md) | Daily recompute, change-driven recompute, manual trigger |
-| [11-configuration-ui.md](./requirements/11-configuration-ui.md) | In-camera web UI for configuration and status |
-| [12-configuration-persistence.md](./requirements/12-configuration-persistence.md) | localdata JSON, AXParameter, export/import |
-| [13-logging.md](./requirements/13-logging.md) | Syslog levels, in-UI status ring buffer |
+## License
 
-### Cross-cutting
-
-| File | Area |
-|---|---|
-| [20-non-functional.md](./requirements/20-non-functional.md) | Footprint, CPU, flash wear, security, signing, license posture |
-| [21-platform-compatibility.md](./requirements/21-platform-compatibility.md) | AXIS OS 11.11+ floor, manifest schema, two-artifact build (armv7hf + aarch64) |
-| [22-build-and-packaging.md](./requirements/22-build-and-packaging.md) | Language choice, vendored astronomy code, CI |
-| [23-verification.md](./requirements/23-verification.md) | End-to-end acceptance checks |
-| [24-open-questions.md](./requirements/24-open-questions.md) | Unresolved items to validate during implementation |
-| [25-licensing-and-distribution.md](./requirements/25-licensing-and-distribution.md) | Project license, source availability, contribution model, public releases |
-| [26-discovered-environment.md](./requirements/26-discovered-environment.md) | Probe results from lab cameras; corrections to assumptions in earlier docs |
-| [27-reuse-from-timelapse2.md](./requirements/27-reuse-from-timelapse2.md) | What we lift from Fred Juhlin's MIT-licensed Timelapse2 ACAP |
-| [28-decision-log.md](./requirements/28-decision-log.md) | Append-only log of substantive design decisions and removed requirements |
+MIT — see [`LICENSE`](./LICENSE). Third-party components (the vendored Timelapse2
+ACAP framework and cJSON, both MIT) are credited in `THIRD_PARTY_LICENSES.md` on
+the release page.
