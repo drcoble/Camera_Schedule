@@ -228,6 +228,7 @@
 
   function showForm(entry) {
     clearErrors();
+    btnSubmit.disabled = false; // re-enable after a prior save left it disabled
     if (entry) {
       editingId = entry.id;
       formHeading.textContent = "Edit calendar entry";
@@ -285,7 +286,7 @@
     var id   = btn.dataset.id;
     var name = btn.dataset.name;
 
-    if (!window.confirm("Delete calendar entry "" + name + ""?")) return;
+    if (!window.confirm("Delete calendar entry \"" + name + "\"?")) return;
 
     fetch("calendar?id=" + encodeURIComponent(id), {
       method: "DELETE",

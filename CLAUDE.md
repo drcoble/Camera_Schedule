@@ -52,9 +52,28 @@ with structurally equivalent evidence), 0 FAIL. Stability evidence:
 9032 kB, 0 AppArmor denials, 99.78% HTTP 200, 0 recompute errors
 (soak-host-sleep gap caveat documented in the verification report).
 License-audit gate end-to-end-verified via the synthetic LGPL drop
-test (closed PR #2; CI run `25524553292` red-flagged in 6s). M8
-added no source-code changes — the v1.0.0-beta `.eap` is
+test (closed PR #2; CI run `25524553292` red-flagged in 6s). At the
+v1.0.0-beta tag, M8 added no source-code changes — the `.eap` was
 functionally identical to v0.7.0 plus build-determinism plumbing.
+
+**Post-beta (uncommitted/untagged):** fixed a version-drift bug — the
+manifest and the `about` page still reported `0.7.0`. `manifest.json`
+`acapPackageConf.setup.version` is now `1.0.0` (numeric only; the
+validator rejects a `-beta` suffix, so the GitHub release tag remains
+the authoritative `v1.0.0-beta` identifier). `manifest.json` is now
+the **single source of truth** for the version: `main.c` reads it at
+runtime via a new `app_version()` helper
+(`ACAP_Get_Config("manifest")` → `acapPackageConf.setup.version`) for
+the `about`, `state`, and export-envelope responses; the old
+`APP_VERSION "0.7.0"` constant is gone, replaced by
+`APP_VERSION_FALLBACK` used only for the pre-`ACAP()` boot banner. The
+`about` endpoint also now returns a `repo` field read from the
+manifest's `vendorUrl`, surfaced as an external link on `about.html`
+(rendered by a new `setLink()` helper in `app/html/js/app.js`). No new
+files were added to the `.eap`, so the packaging `-a` rule is
+unaffected. Host test suite still 12/12 on export/import (the import
+validator keys on the `schema` string, not the app version, so the
+bump is round-trip-safe).
 
 **M4 + M5 code-complete and lab-installed; calendar-locked tags
 still pending.** The M4/M5 implementations ship inside v0.6.0 and
@@ -326,6 +345,21 @@ This trap cost us the M2 lab gate — `settings/events.json` was in the
 build context but not in the `.eap`, so zero AXEvent topics declared
 and the camera's Action Rules picker stayed empty. Fixed in commit
 `42e671b`.
+
+### Static-asset cache-busting (DL-28)
+
+The bundled HTML differs from the in-tree HTML: a build step in
+`app/Dockerfile` (just before `acap-build`) appends `?v=<token>` to
+every `js/*.js` and `css/*.css` `<script>`/`<link>` ref, where `token`
+is a 12-char SHA-256 over the JS+CSS *content*. AXIS serves static
+files with no `Cache-Control`, so without this browsers run stale JS
+across updates (this bit us on the OS 11 lab camera). Don't hand-edit
+`?v=` into the HTML source — leave bare refs; the build injects it. The
+token is content-derived (not the app version) so it busts on every
+asset change including same-version hot-fixes, and is deterministic so
+BR-6 reproducibility holds. If a UI fix looks "not deployed," confirm
+the *served* asset (`curl .../js/foo.js`) vs the browser cache before
+chasing the binary.
 
 ### CI artifacts
 

@@ -43,7 +43,17 @@
 #include "astro/seasonal.h"
 
 #define APP_PACKAGE "camera_schedule"
-#define APP_VERSION "0.7.0"
+
+// Compile-time fallback only. The canonical version lives in
+// manifest.json (acapPackageConf.setup.version) and is read at runtime
+// by app_version(); this constant is used solely before ACAP() loads
+// the manifest (the boot banner) or if the manifest read ever fails.
+#define APP_VERSION_FALLBACK "1.0.0"
+
+// Fallback for the source-repository URL, mirroring manifest.json
+// (acapPackageConf.setup.vendorUrl). app_repo_url() prefers the
+// manifest value so the two never drift.
+#define APP_REPO_URL_FALLBACK "https://github.com/drcoble/Camera_Schedule"
 
 #if defined(__aarch64__)
 #define APP_ARCH "aarch64"
@@ -83,6 +93,35 @@ static gboolean signal_handler(gpointer user_data) {
 // HTTP handlers but referenced from HTTP_Endpoint_Location.
 static void apply_seasonal_labels(double lat);
 
+// ---- Manifest-backed metadata -------------------------------------
+// Single source of truth for version and repo URL: read them from the
+// bundled manifest (loaded by ACAP() into the "manifest" config) so
+// they never drift from manifest.json. Both fall back to the compile-
+// time constant if the manifest is unavailable (e.g. before ACAP()).
+// The returned pointers are owned by the framework's manifest cache —
+// callers must not free them.
+
+static const char* manifest_setup_string(const char* key,
+                                         const char* fallback) {
+    cJSON* manifest = ACAP_Get_Config("manifest");
+    if (manifest) {
+        cJSON* conf  = cJSON_GetObjectItem(manifest, "acapPackageConf");
+        cJSON* setup = conf ? cJSON_GetObjectItem(conf, "setup") : NULL;
+        cJSON* val   = setup ? cJSON_GetObjectItem(setup, key) : NULL;
+        if (cJSON_IsString(val) && val->valuestring && val->valuestring[0])
+            return val->valuestring;
+    }
+    return fallback;
+}
+
+static const char* app_version(void) {
+    return manifest_setup_string("version", APP_VERSION_FALLBACK);
+}
+
+static const char* app_repo_url(void) {
+    return manifest_setup_string("vendorUrl", APP_REPO_URL_FALLBACK);
+}
+
 // ---- HTTP handlers ------------------------------------------------
 
 static void HTTP_Endpoint_About(const ACAP_HTTP_Response response,
@@ -90,8 +129,9 @@ static void HTTP_Endpoint_About(const ACAP_HTTP_Response response,
     (void)request;
     cJSON* body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "name",    "Camera_Schedule");
-    cJSON_AddStringToObject(body, "version", APP_VERSION);
+    cJSON_AddStringToObject(body, "version", app_version());
     cJSON_AddStringToObject(body, "arch",    APP_ARCH);
+    cJSON_AddStringToObject(body, "repo",    app_repo_url());
     ACAP_HTTP_Respond_JSON(response, body);
     cJSON_Delete(body);
 }
@@ -1112,7 +1152,7 @@ static void HTTP_Endpoint_Status(const ACAP_HTTP_Response response,
     format_iso_local(now, local_buf, sizeof local_buf);
 
     cJSON* root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "version", APP_VERSION);
+    cJSON_AddStringToObject(root, "version", app_version());
     cJSON_AddStringToObject(root, "now",       utc_buf);
     cJSON_AddStringToObject(root, "now_local", local_buf);
 
@@ -1256,7 +1296,7 @@ static void HTTP_Endpoint_Recompute(const ACAP_HTTP_Response response,
 static cJSON* build_export_envelope(void) {
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "schema",  "camera-schedule.config.v1");
-    cJSON_AddStringToObject(root, "version", APP_VERSION);
+    cJSON_AddStringToObject(root, "version", app_version());
     char ts[40];
     format_iso_utc(time(NULL), ts, sizeof ts);
     cJSON_AddStringToObject(root, "exported_at", ts);
@@ -2027,7 +2067,10 @@ static void Settings_Updated_Callback(const char* service, cJSON* data) {
 
 int main(void) {
     openlog(APP_PACKAGE, LOG_PID | LOG_CONS, LOG_USER);
-    LOG("------ Starting %s v%s (%s) ------", APP_PACKAGE, APP_VERSION, APP_ARCH);
+    // Manifest not yet loaded (ACAP() runs next), so the boot banner
+    // uses the compile-time fallback; request-time handlers read the
+    // canonical value from the manifest via app_version().
+    LOG("------ Starting %s v%s (%s) ------", APP_PACKAGE, APP_VERSION_FALLBACK, APP_ARCH);
 
     // ACAP() initializes HTTP/FastCGI, AXParameter, status, VAPIX,
     // AXEvent, ACAP_DEVICE_*, and reads settings/events.json to declare

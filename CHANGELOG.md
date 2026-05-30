@@ -12,7 +12,47 @@ the canonical artifact reference.
 
 ## [Unreleased]
 
-(no changes since v1.0.0-beta)
+(no changes since v1.0.1)
+
+## [1.0.1] — 2026-05-30
+
+Maintenance release: configuration-UI fixes, an opt-in firing
+default, and front-end cache-busting. Artifacts remain **unsigned**
+and Artpec-8+ / aarch64 hardware smoke is still deferred per
+[DL-23](./requirements/28-decision-log.md). armv7hf lab-verified on
+AXIS OS 11.11+ and OS 12.x.
+
+### Added
+
+- The **About** page now shows a link to the source repository, read
+  from the manifest `vendorUrl` so it cannot drift.
+
+### Changed
+
+- **Built-in events now default to OFF on a clean install.** A fresh
+  install seeds every built-in solar/lunar/seasonal topic disabled; the
+  operator opts in per event from the Schedule UI. Topics are still
+  declared (Action Rules bindings are unaffected). Operator-defined
+  schedules and upgrade-added built-ins keep the absent-key = enabled
+  default ([DL-29](./requirements/28-decision-log.md),
+  [FR-11.7](./requirements/11-configuration-ui.md)).
+- Static front-end assets (`js/*.js`, `css/*.css`) are cache-busted via
+  a content-hash `?v=` query injected at build time, so browsers no
+  longer serve stale UI code across app updates
+  ([DL-28](./requirements/28-decision-log.md)).
+- App version and source-repo URL are read from the manifest at
+  runtime (single source of truth), replacing a hardcoded version
+  constant that had drifted to `0.7.0`.
+- README rewritten around application architecture and functionality.
+
+### Fixed
+
+- **Anchors and Calendar pages were unusable** — stuck on "Loading…"
+  with a non-functional "New entry" button — due to a JavaScript
+  syntax error (unescaped quotes) in the delete-confirm string that
+  aborted the whole page script.
+- The **Save** button stayed disabled after a successful edit, so a
+  second edit could not be saved without reloading the page.
 
 ## [1.0.0-beta] — 2026-05-07
 

@@ -215,6 +215,7 @@
   // -----------------------------------------------------------------------
   function showForm(anchor) {
     clearErrors();
+    btnSubmit.disabled = false; // re-enable after a prior save left it disabled
     if (anchor) {
       // Edit mode
       editingId = anchor.id;
@@ -291,7 +292,7 @@
       if (a.end_event === id)    refCount++;
     }
 
-    var msg = "Delete anchor "" + name + ""?";
+    var msg = "Delete anchor \"" + name + "\"?";
     if (refCount > 0) {
       msg += "\n\n" + refCount + " other anchor" + (refCount === 1 ? " references" : "s reference") +
              " this anchor. Deleting it will cause those anchors to skip firing until edited.";
